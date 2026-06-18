@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default accent (Indigo). ThemeProvider overrides these at runtime. */
+:root {
+  --brand-50: 238 242 255;  --brand-100: 224 231 255; --brand-200: 199 210 254;
+  --brand-300: 165 180 252; --brand-400: 129 140 248; --brand-500: 99 102 241;
+  --brand-600: 79 70 229;   --brand-700: 67 56 202;   --brand-800: 55 48 163;
+  --brand-900: 49 46 129;   --brand-950: 30 27 75;
+}
+
+html, body, #root { height: 100%; }
+body { @apply bg-slate-50 text-slate-800 antialiased; }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 shadow-sm; }
+  .btn-ghost { @apply btn bg-white text-slate-700 border border-slate-200 hover:bg-slate-50; }
+  .btn-sm { @apply px-3 py-1.5 text-xs; }
+  .card { @apply rounded-2xl bg-white shadow-card border border-slate-100; }
+  .input { @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none; }
+  .label { @apply block text-xs font-semibold text-slate-500 mb-1; }
+  .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
+  .th { @apply text-left text-xs font-semibold uppercase tracking-wide text-slate-400 px-4 py-3; }
+  .td { @apply px-4 py-3 text-sm text-slate-700 border-t border-slate-100; }
+}
+
+/* ───────────────────── Dark theme ─────────────────────
+   Scoped under `.dark` with compound selectors so they override Tailwind's
+   single-class utilities by specificity (no !important) and leave light mode
+   completely untouched. */
+.dark { color-scheme: dark; }
+.dark body { background-color: #0b1220; color: #cbd5e1; }
+
+/* shared component primitives */
+.dark .card { background-color: #111827; border-color: #1f2937; }
+.dark .input { background-color: #0f172a; border-color: #334155; color: #e5e7eb; }
+.dark .input::placeholder { color: #64748b; }
+.dark .btn-ghost { background-color: #111827; border-color: #334155; color: #e5e7eb; }
+.dark .btn-ghost:hover { background-color: #1e293b; }
+.dark .label { color: #94a3b8; }
+.dark .th { color: #94a3b8; }
+.dark .td { color: #cbd5e1; border-color: #1f2937; }
+
+/* raw utilities used directly in pages */
+.dark .bg-white { background-color: #111827; }
+.dark .bg-white\/80 { background-color: rgba(17, 24, 39, 0.8); }
+.dark .bg-slate-50 { background-color: #0f172a; }
+.dark .bg-slate-100 { background-color: #1e293b; }
+.dark .text-slate-900, .dark .text-slate-800 { color: #f1f5f9; }
+.dark .text-slate-700 { color: #e2e8f0; }
+.dark .text-slate-600 { color: #cbd5e1; }
+.dark .text-slate-500 { color: #94a3b8; }
+.dark .text-slate-400 { color: #64748b; }
+.dark .text-slate-300 { color: #475569; }
+.dark .border-slate-100 { border-color: #1f2937; }
+.dark .border-slate-200 { border-color: #334155; }
+
+/* hover variants (utilities carry the :hover, so target them explicitly) */
+.dark .hover\:bg-slate-50:hover { background-color: #1e293b; }
+.dark .hover\:bg-slate-50\/60:hover { background-color: rgba(30, 41, 59, 0.6); }
+.dark .hover\:bg-slate-100:hover { background-color: #334155; }

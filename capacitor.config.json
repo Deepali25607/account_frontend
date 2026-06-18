@@ -1,0 +1,15 @@
+{
+  "appId": "com.ledgerflow.app",
+  "appName": "LedgerFlow",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "backgroundColor": "#1d35d6",
+      "showSpinner": false
+    }
+  }
+}
