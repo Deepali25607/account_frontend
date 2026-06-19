@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3,
-  BookOpenCheck, Factory, Crown, LogOut, Menu, X, Lock, UsersRound, Warehouse,
+  BookOpenCheck, Factory, Crown, LogOut, Menu, Lock, UsersRound, Warehouse,
   Palette, Sun, Moon, Wallet,
 } from "lucide-react";
 import { useAuth } from "../auth";
@@ -13,6 +13,14 @@ const TIER_STYLES = {
   standard: "bg-brand-100 text-brand-700",
   premium: "bg-amber-100 text-amber-700",
 };
+
+// Primary actions shown in the mobile bottom tab bar (all basic-tier → always available).
+const BOTTOM_NAV = [
+  { to: "/", label: "Home", icon: LayoutDashboard, end: true },
+  { to: "/sales", label: "Sales", icon: Receipt },
+  { to: "/purchases", label: "Purchases", icon: ShoppingCart },
+  { to: "/inventory", label: "Stock", icon: Package },
+];
 
 // nav item → required feature (null = always visible)
 const NAV = [
@@ -103,9 +111,7 @@ export default function Layout() {
       {/* main column */}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-slate-200 bg-white/80 px-4 py-3 backdrop-blur">
-          <button className="md:hidden rounded-lg p-1.5 hover:bg-slate-100" onClick={() => setOpen((v) => !v)}>
-            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          <div className="md:hidden grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-600 font-extrabold text-white">L</div>
           <div className="min-w-0">
             <div className="truncate font-semibold text-slate-800">{me.tenant.name}</div>
             <div className="text-xs text-slate-400">{me.user.name} · {me.user.role}</div>
@@ -121,12 +127,42 @@ export default function Layout() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto bg-slate-50 p-4 sm:p-6">
+        <main className="flex-1 overflow-auto bg-slate-50 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-6">
           <div className="mx-auto max-w-6xl">
             <Outlet />
           </div>
         </main>
       </div>
+
+      {/* mobile bottom tab bar (native-app style) */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white/95 backdrop-blur md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        {BOTTOM_NAV.map((n) => {
+          const Icon = n.icon;
+          return (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              end={n.end}
+              className={({ isActive }) =>
+                `flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${isActive ? "text-brand-600" : "text-slate-400"}`
+              }
+            >
+              <Icon className="h-5 w-5" />
+              {n.label}
+            </NavLink>
+          );
+        })}
+        <button
+          onClick={() => setOpen(true)}
+          className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${open ? "text-brand-600" : "text-slate-400"}`}
+        >
+          <Menu className="h-5 w-5" />
+          More
+        </button>
+      </nav>
     </div>
   );
 }
