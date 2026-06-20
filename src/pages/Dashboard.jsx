@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { TrendingUp, TrendingDown, Boxes, AlertTriangle, Package, Users, Truck } from "lucide-react";
+import { TrendingUp, TrendingDown, Boxes, AlertTriangle, Package, Users, Truck, Factory } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, fmtNum, Spinner } from "../ui";
@@ -24,11 +24,20 @@ function Kpi({ icon: Icon, label, value, tone = "brand" }) {
 }
 
 export default function Dashboard() {
-  const { me } = useAuth();
+  const { me, can } = useAuth();
   const cur = me.tenant.currency;
   const [d, setD] = useState(null);
+  // Production orders are a Premium (manufacturing) feature — only fetch & show
+  // them when the tenant's plan includes manufacturing, so Basic/Standard
+  // subscribers never see production data on their dashboard.
+  const showProduction = can("manufacturing");
+  const [orders, setOrders] = useState(null);
 
   useEffect(() => { api.get("/reports/dashboard").then((r) => setD(r.data)); }, []);
+  useEffect(() => {
+    if (!showProduction) return;
+    api.get("/manufacturing/production-orders").then((r) => setOrders(r.data));
+  }, [showProduction]);
 
   if (!d) return <div className="grid h-64 place-items-center"><Spinner className="h-7 w-7 text-brand-500" /></div>;
 
@@ -82,7 +91,56 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {showProduction && <ProductionOrders orders={orders} />}
     </>
+  );
+}
+
+const PO_STATUS_STYLE = {
+  planned: "bg-slate-100 text-slate-600",
+  in_progress: "bg-brand-100 text-brand-700",
+  completed: "bg-emerald-100 text-emerald-700",
+  closed: "bg-slate-200 text-slate-500",
+};
+
+function ProductionOrders({ orders }) {
+  if (orders === null) return null;
+  const active = orders.filter((o) => o.status === "planned" || o.status === "in_progress");
+  const recent = orders.slice(0, 5);
+  return (
+    <div className="card mt-4 p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 font-bold text-slate-800">
+          <Factory className="h-[18px] w-[18px] text-slate-400" /> Production orders
+        </h3>
+        <Link to="/manufacturing" className="text-sm font-semibold text-brand-600">Open Manufacturing →</Link>
+      </div>
+      {orders.length === 0 ? (
+        <div className="grid h-24 place-items-center text-sm text-slate-400">No production orders yet</div>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-slate-500">
+            <span className="font-semibold text-slate-800">{fmtNum(active.length)}</span> active of {fmtNum(orders.length)} total
+          </p>
+          <div className="overflow-hidden rounded-xl border border-slate-100">
+            <table className="w-full min-w-[480px]">
+              <thead><tr className="bg-slate-50"><th className="th">Order</th><th className="th">Item</th><th className="th">Progress</th><th className="th">Status</th></tr></thead>
+              <tbody>
+                {recent.map((po) => (
+                  <tr key={po.id} className="border-t border-slate-100">
+                    <td className="td font-semibold text-slate-800">PRD-{String(po.id).padStart(4, "0")}</td>
+                    <td className="td">{po.item_name}</td>
+                    <td className="td">{fmtNum(po.completed_qty)} / {fmtNum(po.qty)}</td>
+                    <td className="td"><span className={`badge capitalize ${PO_STATUS_STYLE[po.status]}`}>{po.status.replace("_", " ")}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

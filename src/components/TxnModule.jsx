@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
-import { Plus, Trash2, FileText, ScanLine, Camera } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Trash2, FileText, ScanLine, Camera, Printer, CheckCircle2, Pencil, MessageCircle } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, Modal, Field, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
-import { exportInvoicePdf } from "../pdf";
+import { exportInvoicePdf, exportThermalReceipt, THERMAL_SIZES } from "../pdf";
+import { buildInvoiceLink, invoiceMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
 import PageHead from "./PageHead";
 import BarcodeScanner from "./BarcodeScanner";
 
 const PAGE_SIZE = 20;
+const todayStr = () => new Date().toISOString().slice(0, 10); // matches the backend's default doc_date
 
 /** One figure in the document money summary. `strong` = bold total, `accent` = brand colour. */
 function Sum({ label, value, strong, accent }) {
@@ -20,6 +22,138 @@ function Sum({ label, value, strong, accent }) {
 }
 
 /**
+ * Compact "Print" control for a table row: opens a small 2"/3"/4" size menu.
+ * The menu is positioned with fixed viewport coordinates so it isn't clipped by
+ * the table's overflow containers.
+ */
+function ReceiptMenu({ onPick }) {
+  const btnRef = useRef(null);
+  const [pos, setPos] = useState(null); // {top, right} when open, else null
+  const toggle = () => {
+    if (pos) return setPos(null);
+    const r = btnRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+  };
+  return (
+    <span className="ml-1 inline-block align-middle">
+      <button ref={btnRef} className="btn-ghost btn-sm" onClick={toggle} title="Print thermal receipt">
+        <Printer className="h-3.5 w-3.5" /> Print
+      </button>
+      {pos && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setPos(null)} />
+          <div className="fixed z-50 w-36 rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg" style={{ top: pos.top, right: pos.right }}>
+            <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Receipt size</div>
+            {THERMAL_SIZES.map((s) => (
+              <button key={s.mm} className="block w-full px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                onClick={() => { setPos(null); onPick(s.mm); }}>
+                {s.label} <span className="text-slate-400">({s.mm} mm)</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Post-sale "Share via WhatsApp" control. Pre-fills the customer's mobile (editable),
+ * then opens a WhatsApp chat with that number carrying an invoice summary and a
+ * self-contained link to a public read-only invoice (with a Download PDF button).
+ */
+function ShareWhatsApp({ company, currency, doc, customer, phone }) {
+  const [cc, setCc] = useState("91");
+  const [num, setNum] = useState(() => String(phone || "").replace(/\D/g, "").replace(/^0+/, ""));
+  const valid = normalizePhone(num, cc).length >= 10;
+  const send = () => {
+    if (!valid) return;
+    const link = buildInvoiceLink({ company, currency, doc, customer });
+    const text = invoiceMessage({ company, customer, docNo: doc.doc_no, total: fmtMoney(doc.grand_total, currency), link });
+    window.open(waUrl(normalizePhone(num, cc), text), "_blank");
+  };
+  return (
+    <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+      <p className="label flex items-center gap-1.5"><MessageCircle className="h-4 w-4 text-emerald-600" /> Share via WhatsApp</p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Code</span>
+          <input className="input !w-16" value={cc} onChange={(e) => setCc(e.target.value)} inputMode="numeric" />
+        </label>
+        <label className="block min-w-[150px] flex-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Customer mobile</span>
+          <input className="input" value={num} onChange={(e) => setNum(e.target.value)} placeholder="Mobile number" inputMode="tel"
+            onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+        </label>
+        <button className="btn-primary" disabled={!valid} onClick={send}><MessageCircle className="h-4 w-4" /> Send</button>
+      </div>
+      {isPublicShareBase()
+        ? <p className="mt-2 text-[11px] text-slate-400">Opens WhatsApp with the invoice summary and a link to view / download the PDF.</p>
+        : <p className="mt-2 text-[11px] text-amber-600">⚠ The link points at <b>localhost</b>, so it won't open on the customer's phone. Set <code>VITE_PUBLIC_WEB_URL</code> to your deployed app URL.</p>}
+    </div>
+  );
+}
+
+/**
+ * Compact "WhatsApp" control for a table row: a small popover to confirm/enter the
+ * number, then share. The list row has no line items, so `fetchFull` loads the full
+ * document before building the shareable link. Positioned with fixed viewport
+ * coordinates so it isn't clipped by the table's overflow containers.
+ */
+function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toast }) {
+  const btnRef = useRef(null);
+  const [pos, setPos] = useState(null); // {top, right} when open, else null
+  const [cc, setCc] = useState("91");
+  const [num, setNum] = useState("");
+  const [busy, setBusy] = useState(false);
+  const valid = normalizePhone(num, cc).length >= 10;
+  const toggle = () => {
+    if (pos) return setPos(null);
+    setNum(String(phone || "").replace(/\D/g, "").replace(/^0+/, ""));
+    const r = btnRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+  };
+  const send = async () => {
+    if (!valid) return;
+    setBusy(true);
+    try {
+      const doc = await fetchFull();
+      const link = buildInvoiceLink({ company, currency, doc, customer: partyName });
+      const text = invoiceMessage({ company, customer: partyName, docNo: doc.doc_no, total: fmtMoney(doc.grand_total, currency), link });
+      window.open(waUrl(normalizePhone(num, cc), text), "_blank");
+      setPos(null);
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <span className="ml-1 inline-block align-middle">
+      <button ref={btnRef} className="btn-ghost btn-sm" onClick={toggle} title="Share via WhatsApp">
+        <MessageCircle className="h-3.5 w-3.5 text-emerald-600" /> WhatsApp
+      </button>
+      {pos && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setPos(null)} />
+          <div className="fixed z-50 w-60 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-lg" style={{ top: pos.top, right: pos.right }}>
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Send invoice to</div>
+            <div className="flex items-center gap-2">
+              <input className="input !w-14" value={cc} onChange={(e) => setCc(e.target.value)} inputMode="numeric" title="Country code" />
+              <input className="input" value={num} onChange={(e) => setNum(e.target.value)} placeholder="Mobile number" inputMode="tel" autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+            </div>
+            <button className="btn-primary mt-2 w-full justify-center" disabled={!valid || busy} onClick={send}>
+              {busy ? <Spinner className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />} Send
+            </button>
+            {!isPublicShareBase() && (
+              <p className="mt-2 text-[11px] text-amber-600">⚠ Link points at <b>localhost</b> — set <code>VITE_PUBLIC_WEB_URL</code> to your deployed URL so it opens on the customer's phone.</p>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
  * Generic purchase/sale document module. cfg supplies the differences:
  *  kind: "purchase" | "sale"
  *  endpoint, partyResource, partyKey, partyLabel, paymentKey, paymentLabel, returnLabel
@@ -27,15 +161,32 @@ function Sum({ label, value, strong, accent }) {
 export default function TxnModule({ cfg }) {
   const { me, can } = useAuth();
   const cur = me.tenant.currency;
+  const isAdmin = me.user.role === "owner"; // only the admin/owner may edit posted bills
   const toast = useToast();
   const [docs, setDocs] = useState(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
+  // customer_id → phone, used to pre-fill the WhatsApp share number (sales only).
+  const [partyPhones, setPartyPhones] = useState({});
+  useEffect(() => {
+    if (cfg.kind !== "sale") return;
+    api.get(`/${cfg.partyResource}`).then((r) => {
+      const m = {};
+      r.data.forEach((p) => { if (p.phone) m[p.id] = p.phone; });
+      setPartyPhones(m);
+    }).catch(() => {});
+  }, [cfg.kind, cfg.partyResource]);
 
   const openDoc = async (d) => {
     try { const { data } = await api.get(`/${cfg.endpoint}/${d.id}`); setViewing({ ...data, _party: d[cfg.partyNameKey] }); }
+    catch (e) { toast.error(apiError(e)); }
+  };
+
+  const openEdit = async (d) => {
+    try { const { data } = await api.get(`/${cfg.endpoint}/${d.id}`); setEditing(data); }
     catch (e) { toast.error(apiError(e)); }
   };
 
@@ -55,6 +206,23 @@ export default function TxnModule({ cfg }) {
     try {
       const { data } = await api.get(`/sales/${d.id}`);
       exportInvoicePdf({ company: me.tenant.name, currency: cur, doc: data, customer: d[cfg.partyNameKey] });
+    } catch (e) { toast.error(apiError(e)); }
+  };
+
+  // Thermal receipt for the currently-viewed sale/purchase, sized for 2"/3"/4" rolls.
+  const printReceipt = (widthMm) => exportThermalReceipt({
+    company: me.tenant.name, currency: cur, doc: viewing, party: viewing._party,
+    kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
+  });
+
+  // Same, straight from a table row — fetch the full document (list rows omit line items) first.
+  const printRowReceipt = async (d, widthMm) => {
+    try {
+      const { data } = await api.get(`/${cfg.endpoint}/${d.id}`);
+      exportThermalReceipt({
+        company: me.tenant.name, currency: cur, doc: data, party: d[cfg.partyNameKey],
+        kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
+      });
     } catch (e) { toast.error(apiError(e)); }
   };
 
@@ -101,8 +269,18 @@ export default function TxnModule({ cfg }) {
                         </>
                       )}
                       {cfg.kind === "sale" && d.status === "confirmed" && (
-                        <button className="btn-ghost btn-sm" onClick={() => downloadInvoice(d)}><FileText className="h-3.5 w-3.5" /> PDF</button>
+                        <>
+                          <button className="btn-ghost btn-sm" onClick={() => downloadInvoice(d)}><FileText className="h-3.5 w-3.5" /> PDF</button>
+                          <WhatsAppRowButton
+                            company={me.tenant.name} currency={cur} partyName={d[cfg.partyNameKey]} phone={partyPhones[d.customer_id]}
+                            fetchFull={async () => (await api.get(`/${cfg.endpoint}/${d.id}`)).data} toast={toast}
+                          />
+                        </>
                       )}
+                      {isAdmin && d.status !== "cancelled" && (
+                        <button className="btn-ghost btn-sm ml-1" onClick={() => openEdit(d)}><Pencil className="h-3.5 w-3.5" /> Edit</button>
+                      )}
+                      <ReceiptMenu onPick={(mm) => printRowReceipt(d, mm)} />
                     </td>
                   </tr>
                 ))}
@@ -154,24 +332,47 @@ export default function TxnModule({ cfg }) {
               </tbody>
             </table>
           </div>
+
+          {/* Thermal-printer receipt — available for both sales and purchases */}
+          <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+            <span className="label !mb-0 flex items-center gap-1.5"><Printer className="h-4 w-4 text-slate-400" /> Thermal receipt</span>
+            {THERMAL_SIZES.map((s) => (
+              <button key={s.mm} className="btn-ghost btn-sm" onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+
+          {cfg.kind === "sale" && (
+            <ShareWhatsApp company={me.tenant.name} currency={cur} doc={viewing} customer={viewing._party} phone={partyPhones[viewing.customer_id]} />
+          )}
         </DetailModal>
       )}
 
-      {creating && <CreateDoc cfg={cfg} cur={cur} canGst={can("gst")} canLoc={can("multi_location")} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); setPage(1); load(); }} toast={toast} />}
+      {creating && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} canGst={can("gst")} canLoc={can("multi_location")} onClose={() => setCreating(false)} onSaved={() => { setPage(1); load(); }} toast={toast} />}
+
+      {editing && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} canGst={can("gst")} canLoc={can("multi_location")} editDoc={editing} onClose={() => setEditing(null)} onSaved={load} toast={toast} />}
     </>
   );
 }
 
-function CreateDoc({ cfg, cur, canGst, canLoc, onClose, onSaved, toast }) {
+function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose, onSaved, toast }) {
+  const isEdit = !!editDoc;
   const [parties, setParties] = useState([]);
+  const [saved, setSaved] = useState(null); // set after a sale is recorded → shows the print step
   const [items, setItems] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [locationId, setLocationId] = useState("");
-  const [partyId, setPartyId] = useState("");
-  const [docType, setDocType] = useState(cfg.kind);
-  const [paid, setPaid] = useState(0);
-  const [payAccount, setPayAccount] = useState("cash");
-  const [lines, setLines] = useState([{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]);
+  const [locationId, setLocationId] = useState(editDoc?.location_id ? String(editDoc.location_id) : "");
+  const [partyId, setPartyId] = useState(editDoc ? String(editDoc[cfg.partyKey] ?? "") : "");
+  const [docType, setDocType] = useState(editDoc ? editDoc.doc_type : cfg.kind);
+  const [docDate, setDocDate] = useState(editDoc?.doc_date || todayStr());
+  const [paid, setPaid] = useState(editDoc ? (editDoc[cfg.paymentKey] ?? 0) : 0);
+  const [payAccount, setPayAccount] = useState(editDoc?.payment_account || "cash");
+  const [lines, setLines] = useState(
+    editDoc?.lines?.length
+      ? editDoc.lines.map((l) => ({ item_id: String(l.item_id), qty: l.qty, unit_price: l.unit_price, tax_rate: l.tax_rate }))
+      : [{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]
+  );
   const [override, setOverride] = useState(false);
   const [scan, setScan] = useState("");
   const [scanCam, setScanCam] = useState(false);
@@ -180,7 +381,8 @@ function CreateDoc({ cfg, cur, canGst, canLoc, onClose, onSaved, toast }) {
   useEffect(() => {
     api.get(`/${cfg.partyResource}`).then((r) => setParties(r.data));
     api.get("/items").then((r) => setItems(r.data));
-    if (canLoc) api.get("/locations").then((r) => { setLocations(r.data); const d = r.data.find((l) => l.is_default); if (d) setLocationId(String(d.id)); });
+    // Keep an edited doc's own location; otherwise default to the tenant's Main store.
+    if (canLoc) api.get("/locations").then((r) => { setLocations(r.data); const d = r.data.find((l) => l.is_default); if (d) setLocationId((prev) => prev || String(d.id)); });
   }, []);
 
   const setLine = (i, patch) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -233,6 +435,7 @@ function CreateDoc({ cfg, cur, canGst, canLoc, onClose, onSaved, toast }) {
       const payload = {
         [cfg.partyKey]: Number(partyId),
         doc_type: docType,
+        doc_date: docDate,
         [cfg.paymentKey]: Number(paid),
         payment_account: payAccount,
         lines: lines.filter((l) => l.item_id).map((l) => ({
@@ -241,9 +444,32 @@ function CreateDoc({ cfg, cur, canGst, canLoc, onClose, onSaved, toast }) {
       };
       if (cfg.kind === "sale") payload.allowOverride = override;
       if (canLoc && locationId) payload.location_id = Number(locationId);
-      await api.post(`/${cfg.endpoint}`, payload);
+
+      if (isEdit) {
+        await api.put(`/${cfg.endpoint}/${editDoc.id}`, payload);
+        toast.success(`${cfg.kind === "sale" ? "Sale" : "Purchase"} updated`);
+        onSaved();
+        onClose();
+        return;
+      }
+
+      const { data: created } = await api.post(`/${cfg.endpoint}`, payload);
       toast.success(`${cfg.kind === "sale" ? "Sale" : "Purchase"} recorded`);
-      onSaved();
+      onSaved(); // refresh the list behind the modal
+
+      if (cfg.kind === "sale") {
+        // Keep the modal open on a print step. The create response is only the
+        // header row, so fetch the full document (with line items) for printing.
+        const party = parties.find((p) => String(p.id) === String(partyId));
+        const partyName = party?.name || "";
+        const partyPhone = party?.phone || "";
+        try {
+          const { data: full } = await api.get(`/${cfg.endpoint}/${created.id}`);
+          setSaved({ ...full, _party: partyName, _phone: partyPhone });
+        } catch { setSaved({ ...created, _party: partyName, _phone: partyPhone, lines: [] }); }
+      } else {
+        onClose();
+      }
     } catch (e) {
       const msg = apiError(e);
       toast.error(msg);
@@ -253,8 +479,47 @@ function CreateDoc({ cfg, cur, canGst, canLoc, onClose, onSaved, toast }) {
 
   const valid = partyId && lines.some((l) => l.item_id && Number(l.qty) > 0);
 
+  // ── Print step (sales): shown after save instead of closing the modal ──
+  const printReceipt = (mm) => exportThermalReceipt({ company, currency: cur, doc: saved, party: saved._party, kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: mm });
+  const printA4 = () => exportInvoicePdf({ company, currency: cur, doc: saved, customer: saved._party });
+  const startAnother = () => {
+    setSaved(null); setPartyId(""); setDocType(cfg.kind); setDocDate(todayStr()); setPaid(0); setPayAccount("cash");
+    setLines([{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]); setOverride(false); setScan("");
+  };
+
+  if (saved) {
+    return (
+      <Modal open title="Sale recorded" onClose={onClose}>
+        <div className="flex flex-col items-center text-center">
+          <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-7 w-7" /></div>
+          <p className="mt-3 font-bold text-slate-800">{saved.doc_no}</p>
+          <p className="text-sm text-slate-500">{saved._party || "—"} · {fmtMoney(saved.grand_total, cur)}</p>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-slate-100 p-4">
+          <p className="label flex items-center gap-1.5"><Printer className="h-4 w-4 text-slate-400" /> Print thermal receipt</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {THERMAL_SIZES.map((s) => (
+              <button key={s.mm} className="btn-ghost btn-sm" onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)`}>{s.label}</button>
+            ))}
+            <button className="btn-ghost btn-sm" onClick={printA4}><FileText className="h-3.5 w-3.5" /> A4 PDF</button>
+          </div>
+        </div>
+
+        {cfg.kind === "sale" && (
+          <ShareWhatsApp company={company} currency={cur} doc={saved} customer={saved._party} phone={saved._phone} />
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-ghost" onClick={startAnother}><Plus className="h-4 w-4" /> {cfg.newLabel}</button>
+          <button className="btn-primary" onClick={onClose}>Done</button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
-    <Modal open wide title={cfg.newLabel} onClose={onClose}>
+    <Modal open wide title={isEdit ? `Edit ${editDoc.doc_no}` : cfg.newLabel} onClose={onClose}>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label={cfg.partyLabel}>
           <select className="input" value={partyId} onChange={(e) => setPartyId(e.target.value)}>
@@ -268,23 +533,8 @@ function CreateDoc({ cfg, cur, canGst, canLoc, onClose, onSaved, toast }) {
             <option value="return">{cfg.returnLabel}</option>
           </select>
         </Field>
-        <Field label={
-          <span className="flex w-full items-center justify-between">
-            <span>{cfg.paymentLabel}</span>
-            {grand > 0 && Number(paid) !== grand && (
-              <button type="button" onClick={() => setPaid(grand)} className="text-[11px] font-semibold normal-case text-brand-600 hover:underline">
-                {cfg.kind === "sale" ? "Received" : "Paid"} in full
-              </button>
-            )}
-          </span>
-        }>
-          <div className="flex gap-2">
-            <input type="number" min="0" className="input" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
-            <select className="input !w-28" value={payAccount} onChange={(e) => setPayAccount(e.target.value)} title={cfg.kind === "sale" ? "Received in" : "Paid from"}>
-              <option value="cash">Cash</option>
-              <option value="bank">Bank</option>
-            </select>
-          </div>
+        <Field label={cfg.kind === "sale" ? "Invoice date" : "Bill date"}>
+          <input type="date" className="input" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
         </Field>
         {canLoc && locations.length > 0 && (
           <Field label={cfg.kind === "sale" ? "Issue from warehouse" : "Receive into warehouse"}>
@@ -340,6 +590,27 @@ function CreateDoc({ cfg, cur, canGst, canLoc, onClose, onSaved, toast }) {
           Allow overselling beyond available stock (authorized override)
         </label>
       )}
+
+      <div className="mt-4 sm:max-w-xs">
+        <Field label={
+          <span className="flex w-full items-center justify-between">
+            <span>{cfg.paymentLabel}</span>
+            {grand > 0 && Number(paid) !== grand && (
+              <button type="button" onClick={() => setPaid(grand)} className="text-[11px] font-semibold normal-case text-brand-600 hover:underline">
+                {cfg.kind === "sale" ? "Received" : "Paid"} in full
+              </button>
+            )}
+          </span>
+        }>
+          <div className="flex gap-2">
+            <input type="number" min="0" className="input" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
+            <select className="input !w-28" value={payAccount} onChange={(e) => setPayAccount(e.target.value)} title={cfg.kind === "sale" ? "Received in" : "Paid from"}>
+              <option value="cash">Cash</option>
+              <option value="bank">Bank</option>
+            </select>
+          </div>
+        </Field>
+      </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
         <div className="text-sm text-slate-500">

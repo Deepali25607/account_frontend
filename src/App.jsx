@@ -19,6 +19,7 @@ import Appearance from "./pages/Appearance";
 import Billing from "./pages/Billing";
 import Locked from "./pages/Locked";
 import Admin from "./pages/Admin";
+import PublicInvoice from "./pages/PublicInvoice";
 
 function Gate({ children }) {
   const { me, loading } = useAuth();
@@ -49,6 +50,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/i" element={<PublicInvoice />} />{/* public, no-login shareable invoice */}
             <Route path="/admin" element={<AdminGate><Admin /></AdminGate>} />
             <Route element={<Gate><Layout /></Gate>}>
               <Route index element={<Dashboard />} />
