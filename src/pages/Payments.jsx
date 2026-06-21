@@ -13,8 +13,8 @@ const KINDS = {
     amt: "text-emerald-600", tabBadge: "bg-emerald-100 text-emerald-700",
   },
   payment: {
-    id: "payment", label: "Payment Out", sub: "Money paid to vendors",
-    party: "Vendor", balLabel: "payable", icon: ArrowUpRight,
+    id: "payment", label: "Payment Out", sub: "Money paid to suppliers",
+    party: "Supplier", balLabel: "payable", icon: ArrowUpRight,
     amt: "text-violet-600", tabBadge: "bg-violet-100 text-violet-700",
   },
 };
@@ -41,7 +41,7 @@ export default function Payments() {
 
   return (
     <>
-      <PageHead title="Payments" subtitle="Record money received from customers and paid to vendors — amounts auto-settle against open invoices and bills." />
+      <PageHead title="Payments" subtitle="Record money received from customers and paid to suppliers — amounts auto-settle against open invoices and bills." />
 
       {/* In / Out toggle */}
       <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-1 text-sm font-semibold">

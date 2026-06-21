@@ -29,7 +29,7 @@ const NAV = [
   { to: "/warehouses", label: "Warehouses", icon: Warehouse, feature: "multi_location" },
   { to: "/purchases", label: "Purchases", icon: ShoppingCart, feature: "purchases" },
   { to: "/sales", label: "Sales", icon: Receipt, feature: "sales" },
-  { to: "/parties", label: "Vendors & Customers", icon: Users, feature: "purchases" },
+  { to: "/parties", label: "Suppliers & Customers", icon: Users, feature: "purchases" },
   { to: "/payments", label: "Payments", icon: Wallet, feature: null },
   { to: "/reports", label: "Reports", icon: BarChart3, feature: "reports" },
   { to: "/accounting", label: "Accounting & GST", icon: BookOpenCheck, feature: "accounting" },

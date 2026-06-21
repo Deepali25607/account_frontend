@@ -12,7 +12,7 @@ export default function Purchases() {
       partyResource: "vendors",
       partyKey: "vendor_id",
       partyNameKey: "vendor_name",
-      partyLabel: "Vendor",
+      partyLabel: "Supplier",
       paymentKey: "paid",
       paymentLabel: "Amount paid",
     }} />

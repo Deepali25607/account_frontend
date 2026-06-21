@@ -22,21 +22,21 @@ export default function Parties() {
   return (
     <>
       <PageHead
-        title="Vendors & Customers"
+        title="Suppliers & Customers"
         subtitle="Master records with contact, payment terms & tax details"
-        action={<button className="btn-primary" onClick={() => setForm({})}><Plus className="h-4 w-4" /> New {resource === "customers" ? "customer" : "vendor"}</button>}
+        action={<button className="btn-primary" onClick={() => setForm({})}><Plus className="h-4 w-4" /> New {resource === "customers" ? "customer" : "supplier"}</button>}
       />
 
       <div className="mb-4 inline-flex rounded-xl bg-slate-100 p-1 text-sm font-semibold">
         <Tab id="customers" cur={tab} set={setTab} icon={Users}>Customers</Tab>
-        <Tab id="vendors" cur={tab} set={setTab} icon={Truck}>Vendors</Tab>
+        <Tab id="vendors" cur={tab} set={setTab} icon={Truck}>Suppliers</Tab>
       </div>
 
       <div className="card overflow-hidden">
         {rows === null ? (
           <div className="grid h-40 place-items-center"><Spinner className="h-6 w-6 text-brand-500" /></div>
         ) : rows.length === 0 ? (
-          <Empty icon={resource === "customers" ? Users : Truck} title={`No ${resource} yet`} />
+          <Empty icon={resource === "customers" ? Users : Truck} title={`No ${resource === "customers" ? "customers" : "suppliers"} yet`} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px]">
@@ -66,7 +66,7 @@ export default function Parties() {
         <DetailModal
           open onClose={() => setViewing(null)}
           title={viewing.name}
-          subtitle={resource === "customers" ? "Customer" : "Vendor"}
+          subtitle={resource === "customers" ? "Customer" : "Supplier"}
           fields={[
             { label: "Email", value: viewing.email },
             { label: "Phone", value: viewing.phone },
@@ -87,7 +87,7 @@ export default function Parties() {
     });
     const [busy, setBusy] = useState(false);
     const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-    const noun = resource === "customers" ? "customer" : "vendor";
+    const noun = resource === "customers" ? "customer" : "supplier";
     const save = async () => {
       setBusy(true);
       try {
@@ -117,7 +117,7 @@ export default function Parties() {
 
 function PartyDeleteModal({ resource, party, onClose, onDeleted, toast }) {
   const [busy, setBusy] = useState(false);
-  const noun = resource === "customers" ? "customer" : "vendor";
+  const noun = resource === "customers" ? "customer" : "supplier";
   const go = async () => {
     setBusy(true);
     try { await api.delete(`/${resource}/${party.id}`); toast.success(`${noun[0].toUpperCase() + noun.slice(1)} deleted`); onDeleted(); }

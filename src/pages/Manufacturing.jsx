@@ -294,7 +294,7 @@ function Mrp() {
 
   const run = async (id) => { setSel(id); setMrp(null); if (!id) return; const { data } = await api.get(`/manufacturing/production-orders/${id}/mrp`); setMrp(data); };
   const draftPo = async () => {
-    if (!vendor) return toast.error("Pick a vendor first");
+    if (!vendor) return toast.error("Pick a supplier first");
     setBusy(true);
     try { const { data } = await api.post(`/manufacturing/production-orders/${sel}/draft-po`, { vendor_id: Number(vendor) }); toast.success(`Draft ${data.doc_no} created in Purchases`); }
     catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
@@ -335,7 +335,7 @@ function Mrp() {
               <div className="flex flex-wrap items-center gap-2 rounded-xl bg-brand-50 p-3">
                 <span className="text-sm text-slate-600">Convert shortages into a draft PO (MF-05):</span>
                 <select className="input w-auto" value={vendor} onChange={(e) => setVendor(e.target.value)}>
-                  <option value="">Vendor…</option>{vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  <option value="">Supplier…</option>{vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
                 <button className="btn-primary btn-sm" disabled={busy} onClick={draftPo}>{busy && <Spinner className="h-4 w-4" />} Create draft PO <ArrowRight className="h-3.5 w-3.5" /></button>
               </div>

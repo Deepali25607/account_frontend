@@ -128,7 +128,7 @@ function Outstanding({ data, cur }) {
   return (
     <div className="grid gap-6 p-5 sm:grid-cols-2">
       <Block title="Receivables (from customers)" rows={data?.receivables || []} />
-      <Block title="Payables (to vendors)" rows={data?.payables || []} />
+      <Block title="Payables (to suppliers)" rows={data?.payables || []} />
     </div>
   );
 }

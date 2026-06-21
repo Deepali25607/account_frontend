@@ -24,7 +24,7 @@ const MATERIAL_STYLE = {
   consumable: "bg-slate-100 text-slate-600", service: "bg-violet-100 text-violet-700",
 };
 
-const blank = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "trading", uom: "unit", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
+const blank = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
 const PAGE_SIZE = 20;
 
 // CSV import template + minimal RFC-4180-ish parser (handles quotes & embedded commas).
@@ -221,12 +221,12 @@ export default function Inventory() {
     return (
       <Modal open title={isNew ? "New item" : "Edit item"} onClose={onClose}>
         <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2"><Field label="Name"><input className="input" value={f.name} onChange={set("name")} /></Field></div>
+          <Field label="Unit of measure"><input className="input" value={f.uom} onChange={set("uom")} /></Field>
           <Field label="SKU (optional)">
             <input className="input" value={f.sku} onChange={set("sku")} disabled={!isNew} placeholder={isNew ? `Auto e.g. ${SKU_PREFIX[f.material_type] || "IT"}-00001` : ""} />
             {isNew && !f.sku && <p className="mt-1 text-xs text-slate-400">Leave blank to auto-generate as <b>{SKU_PREFIX[f.material_type] || "IT"}-…</b></p>}
           </Field>
-          <Field label="Unit of measure"><input className="input" value={f.uom} onChange={set("uom")} /></Field>
-          <div className="col-span-2"><Field label="Name"><input className="input" value={f.name} onChange={set("name")} /></Field></div>
           <div className="col-span-2"><Field label="Barcode (scan or type — optional)">
             <div className="flex gap-2">
               <input className="input" value={f.barcode || ""} onChange={set("barcode")} placeholder="e.g. 8901234567890" autoComplete="off" />
@@ -236,7 +236,7 @@ export default function Inventory() {
             </div>
           </Field></div>
           <Field label="Material type">
-            <select className="input" value={f.material_type || "trading"} onChange={set("material_type")}>
+            <select className="input" value={f.material_type || "finished"} onChange={set("material_type")}>
               {MATERIAL_TYPES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
           </Field>

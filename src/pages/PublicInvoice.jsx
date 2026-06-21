@@ -82,6 +82,12 @@ export default function PublicInvoice() {
             <div className="mt-4 ml-auto max-w-xs space-y-1.5 text-sm">
               <div className="flex justify-between text-slate-600"><span>Subtotal</span><span>{fmtMoney(doc.subtotal, cur)}</span></div>
               <div className="flex justify-between text-slate-600"><span>Tax</span><span>{fmtMoney(doc.tax_total, cur)}</span></div>
+              {Number(doc.discount) > 0 && (
+                <div className="flex justify-between text-slate-600"><span>{doc.discount_type === "percent" ? `Discount (${doc.discount_value}%)` : "Discount"}</span><span>−{fmtMoney(doc.discount, cur)}</span></div>
+              )}
+              {Number(doc.extra_charges) > 0 && (
+                <div className="flex justify-between text-slate-600"><span>{doc.extra_charges_note ? `Additional charges (${doc.extra_charges_note})` : "Additional charges"}</span><span>{fmtMoney(doc.extra_charges, cur)}</span></div>
+              )}
               <div className="flex justify-between border-t border-slate-100 pt-1.5 font-bold text-slate-900"><span>Total</span><span>{fmtMoney(doc.grand_total, cur)}</span></div>
               {received > 0 && (
                 <div className="flex justify-between text-slate-600">

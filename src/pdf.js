@@ -70,6 +70,8 @@ export function exportInvoicePdf({ company, currency, doc: sale, customer }) {
   pdf.setFontSize(10); pdf.setTextColor(40);
   row("Subtotal", money(sale.subtotal));
   row("Tax", money(sale.tax_total));
+  if (Number(sale.discount)) row(sale.discount_type === "percent" ? `Discount (${sale.discount_value}%)` : "Discount", `- ${money(sale.discount)}`);
+  if (Number(sale.extra_charges)) row(sale.extra_charges_note ? `Charges (${sale.extra_charges_note})` : "Additional charges", money(sale.extra_charges));
   row("Total amount", money(sale.grand_total), true);
 
   const received = Number(sale.received || 0);
@@ -150,7 +152,7 @@ export function exportThermalReceipt({ company, currency, doc: txn, party, kind 
     y += 1;
     left(`No: ${txn.doc_no}`);
     left(`Date: ${txn.doc_date}`);
-    left(`${kind === "sale" ? "Customer" : "Vendor"}: ${party || "-"}`);
+    left(`${kind === "sale" ? "Customer" : "Supplier"}: ${party || "-"}`);
     rule();
     (txn.lines || []).forEach((l) => {
       left(l.item_name || "");
@@ -159,6 +161,8 @@ export function exportThermalReceipt({ company, currency, doc: txn, party, kind 
     rule();
     lr("Subtotal", money(txn.subtotal));
     if (Number(txn.tax_total)) lr("Tax", money(txn.tax_total));
+    if (Number(txn.discount)) lr("Discount", `-${money(txn.discount)}`);
+    if (Number(txn.extra_charges)) lr("Charges", money(txn.extra_charges));
     lr("Total", money(txn.grand_total), true, fs + 1);
     const paidAmt = Number(txn[paymentKey] || 0);
     if (paidAmt > 0) {

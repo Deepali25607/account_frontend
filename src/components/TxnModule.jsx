@@ -11,6 +11,17 @@ import BarcodeScanner from "./BarcodeScanner";
 const PAGE_SIZE = 20;
 const todayStr = () => new Date().toISOString().slice(0, 10); // matches the backend's default doc_date
 
+// Item material types — kept in sync with MATERIAL_TYPES in account-backend/src/routes/masters.js
+// (also mirrored in Inventory.jsx). Used by the inline "new item" quick-add.
+const MATERIAL_TYPES = [
+  { id: "raw", label: "Raw Material" },
+  { id: "semi_finished", label: "Semi-Finished" },
+  { id: "finished", label: "Finished Good" },
+  { id: "trading", label: "Trading Good" },
+  { id: "consumable", label: "Consumable" },
+  { id: "service", label: "Service" },
+];
+
 /** One figure in the document money summary. `strong` = bold total, `accent` = brand colour. */
 function Sum({ label, value, strong, accent }) {
   return (
@@ -307,6 +318,8 @@ export default function TxnModule({ cfg }) {
           <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-4">
             <Sum label="Subtotal" value={fmtMoney(viewing.subtotal, cur)} />
             {can("gst") && <Sum label="Tax" value={fmtMoney(viewing.tax_total, cur)} />}
+            {viewing.discount > 0 && <Sum label={viewing.discount_type === "percent" ? `Discount (${viewing.discount_value}%)` : "Discount"} value={`−${fmtMoney(viewing.discount, cur)}`} />}
+            {viewing.extra_charges > 0 && <Sum label={viewing.extra_charges_note ? `Additional charges (${viewing.extra_charges_note})` : "Additional charges"} value={`+${fmtMoney(viewing.extra_charges, cur)}`} />}
             <Sum label="Total amount" value={fmtMoney(viewing.grand_total, cur)} strong />
             <Sum label={cfg.kind === "sale" ? "Amount received" : "Amount paid"} value={fmtMoney(viewing[cfg.paymentKey], cur)} accent />
             {viewing[cfg.paymentKey] > 0 && (
@@ -364,10 +377,16 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   const [locations, setLocations] = useState([]);
   const [locationId, setLocationId] = useState(editDoc?.location_id ? String(editDoc.location_id) : "");
   const [partyId, setPartyId] = useState(editDoc ? String(editDoc[cfg.partyKey] ?? "") : "");
+  const [newParty, setNewParty] = useState(null); // null | {name,email,phone,tax_no,payment_terms} when quick-adding
+  const [savingParty, setSavingParty] = useState(false);
   const [docType, setDocType] = useState(editDoc ? editDoc.doc_type : cfg.kind);
   const [docDate, setDocDate] = useState(editDoc?.doc_date || todayStr());
   const [paid, setPaid] = useState(editDoc ? (editDoc[cfg.paymentKey] ?? 0) : 0);
   const [payAccount, setPayAccount] = useState(editDoc?.payment_account || "cash");
+  const [discount, setDiscount] = useState(editDoc?.discount_value ?? 0);
+  const [discountType, setDiscountType] = useState(editDoc?.discount_type || "amount");
+  const [extraCharges, setExtraCharges] = useState(editDoc?.extra_charges ?? 0);
+  const [extraChargesNote, setExtraChargesNote] = useState(editDoc?.extra_charges_note || "");
   const [lines, setLines] = useState(
     editDoc?.lines?.length
       ? editDoc.lines.map((l) => ({ item_id: String(l.item_id), qty: l.qty, unit_price: l.unit_price, tax_rate: l.tax_rate }))
@@ -376,6 +395,8 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   const [override, setOverride] = useState(false);
   const [scan, setScan] = useState("");
   const [scanCam, setScanCam] = useState(false);
+  const [newItem, setNewItem] = useState(null); // null | {name, material_type, cost_price, tax_rate, hsn} when quick-adding
+  const [savingItem, setSavingItem] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -388,6 +409,50 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   const setLine = (i, patch) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   const addLine = () => setLines((ls) => [...ls, { item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]);
   const delLine = (i) => setLines((ls) => ls.filter((_, idx) => idx !== i));
+
+  // Quick-add a supplier/customer without leaving the bill form. On success the
+  // new party is added to the dropdown, selected, and the inline panel collapses.
+  const setNewPartyField = (k) => (e) => setNewParty((p) => ({ ...p, [k]: e.target.value }));
+  const saveParty = async () => {
+    const name = String(newParty?.name || "").trim();
+    if (!name) return toast.error("Name is required");
+    setSavingParty(true);
+    try {
+      const { data: created } = await api.post(`/${cfg.partyResource}`, { ...newParty, name });
+      setParties((ps) => [...ps, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setPartyId(String(created.id));
+      setNewParty(null);
+      toast.success(`${cfg.partyLabel} added`);
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setSavingParty(false); }
+  };
+
+  // Quick-add a new inventory item from the bill (purchase). On success the item
+  // is added to inventory, the item list, and slotted into a line on this bill.
+  const setNewItemField = (k) => (e) => setNewItem((it) => ({ ...it, [k]: e.target.value }));
+  const saveItem = async () => {
+    const name = String(newItem?.name || "").trim();
+    if (!name) return toast.error("Item name is required");
+    setSavingItem(true);
+    try {
+      const { data: created } = await api.post("/items", {
+        name,
+        material_type: newItem.material_type || "finished",
+        cost_price: Number(newItem.cost_price) || 0,
+        tax_rate: Number(newItem.tax_rate) || 0,
+        hsn: newItem.hsn || "",
+      });
+      setItems((xs) => [...xs, created].sort((a, b) => a.name.localeCompare(b.name)));
+      const line = { item_id: String(created.id), qty: 1, unit_price: cfg.kind === "sale" ? created.sale_price : created.cost_price, tax_rate: created.tax_rate || 0 };
+      setLines((ls) => {
+        const blankIdx = ls.findIndex((l) => !l.item_id);
+        return blankIdx >= 0 ? ls.map((l, i) => (i === blankIdx ? line : l)) : [...ls, line];
+      });
+      setNewItem(null);
+      toast.success(`Added ${created.name}`);
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setSavingItem(false); }
+  };
 
   const onItemPick = (i, itemId) => {
     const it = items.find((x) => String(x.id) === String(itemId));
@@ -427,7 +492,15 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
     const tax = canGst ? base * Number(l.tax_rate || 0) / 100 : 0;
     acc.sub += base; acc.tax += tax; return acc;
   }, { sub: 0, tax: 0 });
-  const grand = totals.sub + totals.tax;
+  // Document-level extras applied after tax (matches the backend's computeTotals).
+  // Discount can be a flat amount or a % of subtotal; resolve then clamp it.
+  const chargesNum = Math.max(0, Number(extraCharges || 0));
+  const discountInput = Math.max(0, Number(discount || 0));
+  const discountResolved = discountType === "percent"
+    ? totals.sub * Math.min(discountInput, 100) / 100
+    : discountInput;
+  const discountAmt = Math.min(discountResolved, totals.sub + totals.tax + chargesNum);
+  const grand = Math.max(0, totals.sub + totals.tax - discountAmt + chargesNum);
 
   const save = async () => {
     setBusy(true);
@@ -438,6 +511,10 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
         doc_date: docDate,
         [cfg.paymentKey]: Number(paid),
         payment_account: payAccount,
+        discount_type: discountType,
+        discount_value: discountInput,
+        extra_charges: chargesNum,
+        extra_charges_note: extraChargesNote,
         lines: lines.filter((l) => l.item_id).map((l) => ({
           item_id: Number(l.item_id), qty: Number(l.qty), unit_price: Number(l.unit_price), tax_rate: Number(l.tax_rate),
         })),
@@ -485,6 +562,7 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   const startAnother = () => {
     setSaved(null); setPartyId(""); setDocType(cfg.kind); setDocDate(todayStr()); setPaid(0); setPayAccount("cash");
     setLines([{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]); setOverride(false); setScan("");
+    setDiscount(0); setDiscountType("amount"); setExtraCharges(0); setExtraChargesNote("");
   };
 
   if (saved) {
@@ -521,7 +599,15 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   return (
     <Modal open wide title={isEdit ? `Edit ${editDoc.doc_no}` : cfg.newLabel} onClose={onClose}>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label={cfg.partyLabel}>
+        <Field label={
+          <span className="flex w-full items-center justify-between">
+            <span>{cfg.partyLabel}</span>
+            <button type="button" onClick={() => setNewParty((p) => (p ? null : {}))}
+              className="text-[11px] font-semibold normal-case text-brand-600 hover:underline">
+              {newParty ? "Cancel" : `+ New ${cfg.partyLabel.toLowerCase()}`}
+            </button>
+          </span>
+        }>
           <select className="input" value={partyId} onChange={(e) => setPartyId(e.target.value)}>
             <option value="">Select…</option>
             {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -544,6 +630,25 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
           </Field>
         )}
       </div>
+
+      {newParty && (
+        <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+          <p className="label !mb-2">New {cfg.partyLabel.toLowerCase()}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="sm:col-span-1"><Field label="Name"><input className="input" autoFocus value={newParty.name || ""} onChange={setNewPartyField("name")} placeholder="Required" /></Field></div>
+            <Field label="Phone"><input className="input" value={newParty.phone || ""} onChange={setNewPartyField("phone")} /></Field>
+            <Field label="Email"><input className="input" value={newParty.email || ""} onChange={setNewPartyField("email")} /></Field>
+            {canGst && <Field label="Tax / GSTIN"><input className="input" value={newParty.tax_no || ""} onChange={setNewPartyField("tax_no")} /></Field>}
+            <Field label="Payment terms"><input className="input" value={newParty.payment_terms || ""} onChange={setNewPartyField("payment_terms")} placeholder="e.g. Net 30" /></Field>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button className="btn-ghost btn-sm" onClick={() => setNewParty(null)}>Cancel</button>
+            <button className="btn-primary btn-sm" disabled={savingParty || !String(newParty.name || "").trim()} onClick={saveParty}>
+              {savingParty && <Spinner className="h-4 w-4" />} Save {cfg.partyLabel.toLowerCase()}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2">
         <ScanLine className="h-5 w-5 shrink-0 text-brand-500" />
@@ -576,13 +681,44 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
             <input type="number" className="input col-span-4 sm:col-span-2" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
             <input type="number" className="input col-span-4 sm:col-span-2" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
             {canGst
-              ? <input type="number" className="input col-span-3 sm:col-span-2" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" />
+              ? <input type="number" className="input col-span-3 sm:col-span-2" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />
               : <div className="hidden sm:block sm:col-span-2" />}
             <button className="col-span-1 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)}><Trash2 className="h-4 w-4" /></button>
           </div>
         ))}
-        <button className="btn-ghost btn-sm" onClick={addLine}><Plus className="h-3.5 w-3.5" /> Add line</button>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-ghost btn-sm" onClick={addLine}><Plus className="h-3.5 w-3.5" /> Add line</button>
+          {cfg.kind === "purchase" && (
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setNewItem((x) => (x ? null : { material_type: "finished" }))}>
+              <Plus className="h-3.5 w-3.5" /> {newItem ? "Cancel new item" : "New item"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {cfg.kind === "purchase" && newItem && (
+        <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+          <p className="label !mb-2">New item</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="sm:col-span-1"><Field label="Name"><input className="input" autoFocus value={newItem.name || ""} onChange={setNewItemField("name")} placeholder="Required" /></Field></div>
+            <Field label="Material type">
+              <select className="input" value={newItem.material_type || "finished"} onChange={setNewItemField("material_type")}>
+                {MATERIAL_TYPES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Cost price"><input type="number" min="0" className="input" value={newItem.cost_price || ""} onChange={setNewItemField("cost_price")} placeholder="0" /></Field>
+            {canGst && <Field label="GST %"><input type="number" min="0" className="input" value={newItem.tax_rate || ""} onChange={setNewItemField("tax_rate")} placeholder="0" /></Field>}
+            {canGst && <Field label="HSN/SAC"><input className="input" value={newItem.hsn || ""} onChange={setNewItemField("hsn")} /></Field>}
+          </div>
+          <p className="mt-2 text-[11px] text-slate-400">SKU is auto-generated. Saving adds the item to your inventory and to this bill.</p>
+          <div className="mt-3 flex justify-end gap-2">
+            <button className="btn-ghost btn-sm" onClick={() => setNewItem(null)}>Cancel</button>
+            <button className="btn-primary btn-sm" disabled={savingItem || !String(newItem.name || "").trim()} onClick={saveItem}>
+              {savingItem && <Spinner className="h-4 w-4" />} Save item
+            </button>
+          </div>
+        </div>
+      )}
 
       {cfg.kind === "sale" && (
         <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
@@ -590,6 +726,26 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
           Allow overselling beyond available stock (authorized override)
         </label>
       )}
+
+      <div className="mt-4 grid gap-3 sm:max-w-md sm:grid-cols-2">
+        <Field label="Additional discount">
+          <div className="flex gap-2">
+            <input type="number" min="0" className="input" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0" />
+            <select className="input !w-28" value={discountType} onChange={(e) => setDiscountType(e.target.value)} title="Discount type">
+              <option value="amount">Amount</option>
+              <option value="percent">%</option>
+            </select>
+          </div>
+        </Field>
+        <Field label="Additional charges">
+          <input type="number" min="0" className="input" value={extraCharges} onChange={(e) => setExtraCharges(e.target.value)} placeholder="0" />
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Additional charges note">
+            <input type="text" className="input" value={extraChargesNote} onChange={(e) => setExtraChargesNote(e.target.value)} placeholder="e.g. Freight, Packing, Insurance" />
+          </Field>
+        </div>
+      </div>
 
       <div className="mt-4 sm:max-w-xs">
         <Field label={
@@ -616,6 +772,8 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
         <div className="text-sm text-slate-500">
           Subtotal <b className="text-slate-800">{fmtMoney(totals.sub, cur)}</b>
           {canGst && <> · Tax <b className="text-slate-800">{fmtMoney(totals.tax, cur)}</b></>}
+          {discountAmt > 0 && <> · Discount <b className="text-slate-800">−{fmtMoney(discountAmt, cur)}{discountType === "percent" ? ` (${discountInput}%)` : ""}</b></>}
+          {chargesNum > 0 && <> · Charges <b className="text-slate-800">+{fmtMoney(chargesNum, cur)}</b></>}
           {" "}· Total <b className="text-brand-700">{fmtMoney(grand, cur)}</b>
         </div>
         <div className="flex gap-2">

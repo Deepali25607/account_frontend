@@ -83,7 +83,7 @@ export default function Dashboard() {
           <div className="space-y-2">
             <CountRow icon={Package} label="Items" value={d.counts.items} to="/inventory" />
             <CountRow icon={Users} label="Customers" value={d.counts.customers} to="/parties" />
-            <CountRow icon={Truck} label="Vendors" value={d.counts.vendors} to="/parties" />
+            <CountRow icon={Truck} label="Suppliers" value={d.counts.vendors} to="/parties" />
           </div>
           <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
             Plan: <span className="font-semibold capitalize text-slate-800">{me.tenant.tier}</span>.{" "}
