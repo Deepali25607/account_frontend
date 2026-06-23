@@ -21,6 +21,11 @@ const MATERIAL_TYPES = [
   { id: "consumable", label: "Consumable" },
   { id: "service", label: "Service" },
 ];
+// Mirrors SKU_PREFIX in account-backend/src/routes/masters.js (display hint only).
+const SKU_PREFIX = { raw: "RM", semi_finished: "SF", finished: "FG", trading: "TG", consumable: "CM", service: "SV" };
+// A blank item for the inline quick-add — mirrors `blank` in Inventory.jsx so the
+// in-bill form can capture every field the full item master supports.
+const BLANK_ITEM = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
 
 /** One figure in the document money summary. `strong` = bold total, `accent` = brand colour. */
 function Sum({ label, value, strong, accent }) {
@@ -395,8 +400,9 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   const [override, setOverride] = useState(false);
   const [scan, setScan] = useState("");
   const [scanCam, setScanCam] = useState(false);
-  const [newItem, setNewItem] = useState(null); // null | {name, material_type, cost_price, tax_rate, hsn} when quick-adding
+  const [newItem, setNewItem] = useState(null); // null | full item draft (see BLANK_ITEM) when quick-adding
   const [savingItem, setSavingItem] = useState(false);
+  const [itemScanCam, setItemScanCam] = useState(false); // camera scan for the new-item barcode field
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -437,10 +443,17 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
     try {
       const { data: created } = await api.post("/items", {
         name,
+        sku: String(newItem.sku || "").trim(), // blank → backend auto-generates
+        barcode: String(newItem.barcode || "").trim(),
         material_type: newItem.material_type || "finished",
-        cost_price: Number(newItem.cost_price) || 0,
-        tax_rate: Number(newItem.tax_rate) || 0,
+        uom: String(newItem.uom || "").trim() || "unit",
+        category: String(newItem.category || "").trim(),
         hsn: newItem.hsn || "",
+        cost_price: Number(newItem.cost_price) || 0,
+        sale_price: Number(newItem.sale_price) || 0,
+        tax_rate: Number(newItem.tax_rate) || 0,
+        stock_qty: Number(newItem.stock_qty) || 0,
+        reorder_lvl: Number(newItem.reorder_lvl) || 0,
       });
       setItems((xs) => [...xs, created].sort((a, b) => a.name.localeCompare(b.name)));
       const line = { item_id: String(created.id), qty: 1, unit_price: cfg.kind === "sale" ? created.sale_price : created.cost_price, tax_rate: created.tax_rate || 0 };
@@ -689,7 +702,7 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
         <div className="flex flex-wrap gap-2">
           <button className="btn-ghost btn-sm" onClick={addLine}><Plus className="h-3.5 w-3.5" /> Add line</button>
           {cfg.kind === "purchase" && (
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setNewItem((x) => (x ? null : { material_type: "finished" }))}>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setNewItem((x) => (x ? null : { ...BLANK_ITEM }))}>
               <Plus className="h-3.5 w-3.5" /> {newItem ? "Cancel new item" : "New item"}
             </button>
           )}
@@ -700,23 +713,40 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
         <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
           <p className="label !mb-2">New item</p>
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="sm:col-span-1"><Field label="Name"><input className="input" autoFocus value={newItem.name || ""} onChange={setNewItemField("name")} placeholder="Required" /></Field></div>
+            <div className="sm:col-span-2"><Field label="Name"><input className="input" autoFocus value={newItem.name || ""} onChange={setNewItemField("name")} placeholder="Required" /></Field></div>
+            <Field label="Unit of measure"><input className="input" value={newItem.uom || ""} onChange={setNewItemField("uom")} placeholder="unit" /></Field>
+            <Field label="SKU (optional)">
+              <input className="input" value={newItem.sku || ""} onChange={setNewItemField("sku")} placeholder={`Auto e.g. ${SKU_PREFIX[newItem.material_type] || "IT"}-00001`} autoComplete="off" />
+            </Field>
             <Field label="Material type">
               <select className="input" value={newItem.material_type || "finished"} onChange={setNewItemField("material_type")}>
                 {MATERIAL_TYPES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             </Field>
-            <Field label="Cost price"><input type="number" min="0" className="input" value={newItem.cost_price || ""} onChange={setNewItemField("cost_price")} placeholder="0" /></Field>
+            <Field label="Category"><input className="input" value={newItem.category || ""} onChange={setNewItemField("category")} /></Field>
+            <div className="sm:col-span-3"><Field label="Barcode (scan or type — optional)">
+              <div className="flex gap-2">
+                <input className="input" value={newItem.barcode || ""} onChange={setNewItemField("barcode")} placeholder="e.g. 8901234567890" autoComplete="off" />
+                <button type="button" onClick={() => setItemScanCam(true)} className="btn-ghost shrink-0" title="Scan with camera">
+                  <Camera className="h-4 w-4" /> Scan
+                </button>
+              </div>
+            </Field></div>
+            {canGst && <Field label="HSN/SAC"><input className="input" value={newItem.hsn || ""} onChange={setNewItemField("hsn")} placeholder="e.g. 9401" autoComplete="off" /></Field>}
             {canGst && <Field label="GST %"><input type="number" min="0" className="input" value={newItem.tax_rate || ""} onChange={setNewItemField("tax_rate")} placeholder="0" /></Field>}
-            {canGst && <Field label="HSN/SAC"><input className="input" value={newItem.hsn || ""} onChange={setNewItemField("hsn")} /></Field>}
+            <Field label="Cost price"><input type="number" min="0" className="input" value={newItem.cost_price || ""} onChange={setNewItemField("cost_price")} placeholder="0" /></Field>
+            <Field label="Sale price"><input type="number" min="0" className="input" value={newItem.sale_price || ""} onChange={setNewItemField("sale_price")} placeholder="0" /></Field>
+            <Field label="Opening stock"><input type="number" className="input" value={newItem.stock_qty || ""} onChange={setNewItemField("stock_qty")} placeholder="0" /></Field>
+            <Field label="Reorder level"><input type="number" className="input" value={newItem.reorder_lvl || ""} onChange={setNewItemField("reorder_lvl")} placeholder="0" /></Field>
           </div>
-          <p className="mt-2 text-[11px] text-slate-400">SKU is auto-generated. Saving adds the item to your inventory and to this bill.</p>
+          <p className="mt-2 text-[11px] text-slate-400">Leave SKU blank to auto-generate (<b>{SKU_PREFIX[newItem.material_type] || "IT"}-…</b>). Saving adds the item to your inventory and to this bill.</p>
           <div className="mt-3 flex justify-end gap-2">
             <button className="btn-ghost btn-sm" onClick={() => setNewItem(null)}>Cancel</button>
             <button className="btn-primary btn-sm" disabled={savingItem || !String(newItem.name || "").trim()} onClick={saveItem}>
               {savingItem && <Spinner className="h-4 w-4" />} Save item
             </button>
           </div>
+          <BarcodeScanner open={itemScanCam} onClose={() => setItemScanCam(false)} onDetect={(code) => { setItemScanCam(false); setNewItem((it) => ({ ...it, barcode: code })); toast.success("Barcode captured"); }} />
         </div>
       )}
 
