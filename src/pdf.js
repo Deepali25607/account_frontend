@@ -196,7 +196,10 @@ export function exportThermalReceipt({ company, currency, doc: txn, party, kind 
         const scale = Math.min(innerW / props.width, maxH / props.height);
         const w = props.width * scale, h = props.height * scale;
         pdf.addImage(dataUrl, (W - w) / 2, y, w, h);
-        y += h + 2;
+        // The following text is positioned by its baseline, so its capitals rise
+        // ~0.75·fontSize above y. Clear the tallest following line (the company
+        // name at fs+3) plus a small gap so the logo and name never overlap.
+        y += h + (fs + 3) * 0.42 + 1.4;
       } catch { /* unsupported/corrupt image — skip it */ }
     };
 
