@@ -4,22 +4,22 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { TrendingUp, TrendingDown, Boxes, AlertTriangle, Package, Users, Truck, Factory } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { fmtMoney, fmtNum, Spinner } from "../ui";
+import { fmtMoney, fmtNum, SkeletonCard, Skeleton } from "../ui";
 import PageHead from "../components/PageHead";
 import BusinessAssistant from "../components/BusinessAssistant";
 
 function Kpi({ icon: Icon, label, value, tone = "brand" }) {
   const tones = {
-    brand: "bg-brand-50 text-brand-600",
-    emerald: "bg-emerald-50 text-emerald-600",
-    amber: "bg-amber-50 text-amber-600",
-    rose: "bg-rose-50 text-rose-600",
+    brand: "from-brand-500 to-brand-700 shadow-glow-sm",
+    emerald: "from-emerald-400 to-emerald-600 shadow-[0_4px_14px_-4px_rgba(16,185,129,.5)]",
+    amber: "from-amber-400 to-amber-600 shadow-[0_4px_14px_-4px_rgba(245,158,11,.5)]",
+    rose: "from-rose-400 to-rose-600 shadow-[0_4px_14px_-4px_rgba(244,63,94,.5)]",
   };
   return (
-    <div className="card p-5">
-      <div className={`mb-3 inline-grid h-10 w-10 place-items-center rounded-xl ${tones[tone]}`}><Icon className="h-5 w-5" /></div>
-      <div className="text-2xl font-extrabold text-slate-900">{value}</div>
-      <div className="text-sm text-slate-500">{label}</div>
+    <div className="glass card-interactive p-5">
+      <div className={`mb-3 inline-grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br text-white ${tones[tone]}`}><Icon className="h-5 w-5" /></div>
+      <div className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-[1.65rem]">{value}</div>
+      <div className="mt-0.5 text-sm text-slate-500">{label}</div>
     </div>
   );
 }
@@ -40,7 +40,15 @@ export default function Dashboard() {
     api.get("/manufacturing/production-orders").then((r) => setOrders(r.data));
   }, [showProduction]);
 
-  if (!d) return <div className="grid h-64 place-items-center"><Spinner className="h-7 w-7 text-brand-500" /></div>;
+  if (!d) return (
+    <>
+      <PageHead title={`Welcome back 👋`} subtitle={`Loading your overview…`} />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+      </div>
+      <div className="mt-4"><Skeleton className="h-40 w-full rounded-2xl" /></div>
+    </>
+  );
 
   const chart = d.trend.map((t) => ({ month: t.month.slice(2), sales: t.sales }));
 
@@ -48,19 +56,19 @@ export default function Dashboard() {
     <>
       <PageHead title={`Welcome back 👋`} subtitle={`Here's how ${me.tenant.name} is doing.`} />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi icon={TrendingUp} tone="emerald" label="Sales (30 days)" value={fmtMoney(d.sales30, cur)} />
         <Kpi icon={TrendingDown} tone="brand" label="Purchases (30 days)" value={fmtMoney(d.purch30, cur)} />
         <Kpi icon={Boxes} tone="amber" label="Stock value" value={fmtMoney(d.stockValue, cur)} />
         <Kpi icon={AlertTriangle} tone="rose" label="Low-stock items" value={fmtNum(d.lowStock)} />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-4 animate-fade-up">
         <BusinessAssistant cur={cur} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <div className="card p-5 lg:col-span-2">
+        <div className="glass p-5 lg:col-span-2 animate-fade-up">
           <h3 className="mb-4 font-bold text-slate-800">Sales trend</h3>
           {chart.length ? (
             <ResponsiveContainer width="100%" height={260}>
@@ -83,7 +91,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="card p-5">
+        <div className="glass p-5 animate-fade-up">
           <h3 className="mb-4 font-bold text-slate-800">Your records</h3>
           <div className="space-y-2">
             <CountRow icon={Package} label="Items" value={d.counts.items} to="/inventory" />
@@ -114,7 +122,7 @@ function ProductionOrders({ orders }) {
   const active = orders.filter((o) => o.status === "planned" || o.status === "in_progress");
   const recent = orders.slice(0, 5);
   return (
-    <div className="card mt-4 p-5">
+    <div className="glass mt-4 p-5 animate-fade-up">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="flex items-center gap-2 font-bold text-slate-800">
           <Factory className="h-[18px] w-[18px] text-slate-400" /> Production orders
@@ -150,8 +158,10 @@ function ProductionOrders({ orders }) {
 }
 
 const CountRow = ({ icon: Icon, label, value, to }) => (
-  <Link to={to} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-slate-50">
-    <Icon className="h-[18px] w-[18px] text-slate-400" />
+  <Link to={to} className="group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 hover:bg-slate-50 active:scale-[.98]">
+    <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100 text-slate-500 transition-colors group-hover:bg-brand-50 group-hover:text-brand-600">
+      <Icon className="h-[18px] w-[18px]" />
+    </span>
     <span className="flex-1 text-sm text-slate-600">{label}</span>
     <span className="font-bold text-slate-800">{value}</span>
   </Link>

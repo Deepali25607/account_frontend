@@ -38,34 +38,46 @@ export default function Login() {
   return (
     <div className="grid min-h-full md:grid-cols-2">
       {/* brand panel */}
-      <div className="relative hidden flex-col justify-between bg-gradient-to-br from-brand-700 to-brand-950 p-10 text-white md:flex">
-        <div className="flex items-center gap-2">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/15 font-extrabold">L</div>
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-brand-700 to-brand-950 p-10 text-white md:flex">
+        {/* animated ambient orbs */}
+        <div className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-3xl animate-float" />
+        <div className="pointer-events-none absolute -bottom-32 -left-16 h-96 w-96 rounded-full bg-brand-400/20 blur-3xl animate-float" style={{ animationDelay: "1.5s" }} />
+        <div className="relative flex items-center gap-2">
+          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-white/15 font-extrabold backdrop-blur">L</div>
           <span className="text-lg font-extrabold">LedgerFlow</span>
         </div>
-        <div>
+        <div className="relative">
           <h1 className="text-4xl font-extrabold leading-tight">Accounting & inventory that grows with you.</h1>
           <p className="mt-4 max-w-md text-brand-100">One platform — Basic to Premium. Track purchases, sales and stock today; unlock accounting, GST and manufacturing planning as you scale.</p>
-          <ul className="mt-6 space-y-2 text-sm text-brand-50">
+          <ul className="mt-6 space-y-2.5 text-sm text-brand-50">
             {["Real-time stock & valuation", "GST-ready invoicing (Standard+)", "BOM-driven MRP (Premium)"].map((f) => (
-              <li key={f} className="flex items-center gap-2"><Check className="h-4 w-4" /> {f}</li>
+              <li key={f} className="flex items-center gap-2.5">
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-white/15 backdrop-blur"><Check className="h-3 w-3" /></span> {f}
+              </li>
             ))}
           </ul>
         </div>
-        <p className="text-xs text-brand-200">© 2026 LedgerFlow SaaS</p>
+        <p className="relative text-xs text-brand-200">© 2026 LedgerFlow SaaS</p>
       </div>
 
       {/* form panel */}
-      <div className="flex items-center justify-center p-6">
-        <div className="w-full max-w-md">
-          <div className="mb-6 flex items-center gap-2 md:hidden">
-            <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 font-extrabold text-white">L</div>
-            <span className="text-lg font-extrabold text-slate-800">LedgerFlow</span>
+      <div className="relative flex items-center justify-center overflow-hidden p-6">
+        {/* mobile ambient glow (brand panel is hidden < md) */}
+        <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-brand-300/30 blur-3xl md:hidden" />
+        <div className="pointer-events-none absolute -bottom-24 -left-16 h-72 w-72 rounded-full bg-brand-400/20 blur-3xl md:hidden" />
+        <div className="relative w-full max-w-md animate-fade-up">
+          <div className="mb-6 flex items-center gap-2.5 md:hidden">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 font-extrabold text-white shadow-glow-sm">L</div>
+            <div>
+              <div className="text-lg font-extrabold leading-tight text-slate-800">LedgerFlow</div>
+              <div className="text-[11px] text-slate-400">Accounting & Inventory</div>
+            </div>
           </div>
 
-          <div className="mb-6 inline-flex rounded-xl bg-slate-100 p-1 text-sm font-semibold">
+          <div className="glass-strong p-6 sm:p-7">
+          <div className="mb-6 inline-flex rounded-2xl bg-slate-100/80 p-1 text-sm font-semibold backdrop-blur">
             {["login", "register"].map((m) => (
-              <button key={m} onClick={() => setMode(m)} className={`rounded-lg px-4 py-1.5 capitalize ${mode === m ? "bg-white text-brand-700 shadow-sm" : "text-slate-500"}`}>
+              <button key={m} onClick={() => setMode(m)} className={`rounded-xl px-4 py-1.5 capitalize transition-all duration-200 active:scale-95 ${mode === m ? "bg-white text-brand-700 shadow-sm" : "text-slate-500"}`}>
                 {m === "login" ? "Sign in" : "Create account"}
               </button>
             ))}
@@ -99,7 +111,7 @@ export default function Login() {
               </div>
             )}
 
-            {err && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{err}</p>}
+            {err && <p className="rounded-xl border border-rose-200/60 bg-rose-50/90 px-3 py-2 text-sm font-medium text-rose-600 animate-fade-up">{err}</p>}
 
             <button className="btn-primary w-full" disabled={busy}>
               {busy && <Spinner className="h-4 w-4" />}
@@ -107,9 +119,10 @@ export default function Login() {
             </button>
           </form>
 
-          <button onClick={useDemo} className="mt-4 w-full text-center text-sm text-slate-500 hover:text-brand-600">
+          <button onClick={useDemo} className="mt-4 w-full text-center text-sm text-slate-500 transition hover:text-brand-600">
             Use demo account (owner@demo.com / demo1234)
           </button>
+          </div>
         </div>
       </div>
     </div>

@@ -12,19 +12,64 @@
 }
 
 html, body, #root { height: 100%; }
-body { @apply bg-slate-50 text-slate-800 antialiased; }
+html { -webkit-tap-highlight-color: transparent; }
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+  /* Soft accent-tinted aurora wash behind the whole app for depth. */
+  background-image:
+    radial-gradient(1200px 600px at 100% -10%, rgb(var(--brand-500) / .08), transparent 60%),
+    radial-gradient(1000px 500px at -10% 10%, rgb(var(--brand-400) / .06), transparent 55%);
+  background-attachment: fixed;
+}
+/* Momentum scrolling + no overscroll glow on the native Android shell. */
+* { -webkit-overflow-scrolling: touch; }
+::selection { background: rgb(var(--brand-500) / .22); }
+
+/* Tasteful scrollbars that match the theme. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgb(148 163 184 / .35); border-radius: 9999px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgb(148 163 184 / .55); background-clip: content-box; }
 
 @layer components {
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed; }
-  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 shadow-sm; }
-  .btn-ghost { @apply btn bg-white text-slate-700 border border-slate-200 hover:bg-slate-50; }
-  .btn-sm { @apply px-3 py-1.5 text-xs; }
-  .card { @apply rounded-2xl bg-white shadow-card border border-slate-100; }
-  .input { @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none; }
-  .label { @apply block text-xs font-semibold text-slate-500 mb-1; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[.97]; }
+  .btn-primary { @apply btn text-white shadow-glow-sm hover:shadow-glow; background-image: linear-gradient(135deg, rgb(var(--brand-500)), rgb(var(--brand-700))); }
+  .btn-primary:hover { background-image: linear-gradient(135deg, rgb(var(--brand-600)), rgb(var(--brand-800))); }
+  .btn-ghost { @apply btn bg-white/80 text-slate-700 border border-slate-200/80 backdrop-blur hover:bg-white hover:border-slate-300 hover:shadow-soft; }
+  .btn-sm { @apply px-3 py-1.5 text-xs rounded-lg; }
+  .card { @apply rounded-2xl bg-white shadow-card border border-slate-100 transition-all duration-300; }
+  /* Premium frosted-glass surface — the signature look. */
+  .glass { @apply rounded-2xl border border-white/60 bg-white/70 backdrop-blur-xl shadow-soft; }
+  .glass-strong { @apply rounded-2xl border border-white/70 bg-white/85 backdrop-blur-2xl shadow-glass; }
+  /* Interactive card: lifts and brightens on hover, presses on tap. */
+  .card-interactive { @apply cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lift active:translate-y-0 active:scale-[.99]; }
+  .input { @apply w-full rounded-xl border border-slate-200 bg-white/90 px-3.5 py-2.5 text-sm placeholder:text-slate-400 transition-all duration-200 focus:border-brand-400 focus:ring-4 focus:ring-brand-100/70 focus:bg-white outline-none; }
+  .label { @apply block text-xs font-semibold text-slate-500 mb-1.5; }
   .badge { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
   .th { @apply text-left text-xs font-semibold uppercase tracking-wide text-slate-400 px-4 py-3; }
   .td { @apply px-4 py-3 text-sm text-slate-700 border-t border-slate-100; }
+  /* Accent gradient text for headlines / hero figures. */
+  .text-gradient { @apply bg-clip-text text-transparent; background-image: linear-gradient(120deg, rgb(var(--brand-600)), rgb(var(--brand-400))); }
+  /* Shimmering skeleton block for loading states. */
+  .skeleton { @apply relative overflow-hidden rounded-lg bg-slate-200/70; }
+  .skeleton::after { content: ""; @apply absolute inset-0 -translate-x-full animate-shimmer; background-image: linear-gradient(90deg, transparent, rgba(255,255,255,.65), transparent); }
+}
+
+/* Staggered entrance for children of a list/grid — pure CSS, no JS needed. */
+.stagger > * { animation: fade-up .5s cubic-bezier(.22,1,.36,1) both; }
+.stagger > *:nth-child(1) { animation-delay: .02s; }
+.stagger > *:nth-child(2) { animation-delay: .07s; }
+.stagger > *:nth-child(3) { animation-delay: .12s; }
+.stagger > *:nth-child(4) { animation-delay: .17s; }
+.stagger > *:nth-child(5) { animation-delay: .22s; }
+.stagger > *:nth-child(6) { animation-delay: .27s; }
+.stagger > *:nth-child(7) { animation-delay: .32s; }
+.stagger > *:nth-child(8) { animation-delay: .37s; }
+.stagger > *:nth-child(n+9) { animation-delay: .42s; }
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  body { background-attachment: scroll; }
 }
 
 /* ───────────────────── Dark theme ─────────────────────
@@ -32,21 +77,32 @@ body { @apply bg-slate-50 text-slate-800 antialiased; }
    single-class utilities by specificity (no !important) and leave light mode
    completely untouched. */
 .dark { color-scheme: dark; }
-.dark body { background-color: #0b1220; color: #cbd5e1; }
+.dark body {
+  background-color: #0b1220; color: #cbd5e1;
+  background-image:
+    radial-gradient(1200px 600px at 100% -10%, rgb(var(--brand-500) / .14), transparent 60%),
+    radial-gradient(1000px 500px at -10% 10%, rgb(var(--brand-700) / .12), transparent 55%);
+}
 
 /* shared component primitives */
 .dark .card { background-color: #111827; border-color: #1f2937; }
-.dark .input { background-color: #0f172a; border-color: #334155; color: #e5e7eb; }
+.dark .glass { background-color: rgba(17, 24, 39, .62); border-color: rgba(148, 163, 184, .12); }
+.dark .glass-strong { background-color: rgba(17, 24, 39, .78); border-color: rgba(148, 163, 184, .14); }
+.dark .input { background-color: rgba(15, 23, 42, .9); border-color: #334155; color: #e5e7eb; }
 .dark .input::placeholder { color: #64748b; }
-.dark .btn-ghost { background-color: #111827; border-color: #334155; color: #e5e7eb; }
+.dark .btn-ghost { background-color: rgba(17, 24, 39, .7); border-color: #334155; color: #e5e7eb; }
 .dark .btn-ghost:hover { background-color: #1e293b; }
 .dark .label { color: #94a3b8; }
 .dark .th { color: #94a3b8; }
 .dark .td { color: #cbd5e1; border-color: #1f2937; }
+.dark .skeleton { background-color: rgba(51, 65, 85, .5); }
+.dark .skeleton::after { background-image: linear-gradient(90deg, transparent, rgba(148,163,184,.18), transparent); }
 
 /* raw utilities used directly in pages */
 .dark .bg-white { background-color: #111827; }
 .dark .bg-white\/80 { background-color: rgba(17, 24, 39, 0.8); }
+.dark .bg-white\/70 { background-color: rgba(17, 24, 39, 0.62); }
+.dark .bg-white\/60 { background-color: rgba(17, 24, 39, 0.55); }
 .dark .bg-slate-50 { background-color: #0f172a; }
 .dark .bg-slate-100 { background-color: #1e293b; }
 .dark .text-slate-900, .dark .text-slate-800 { color: #f1f5f9; }
@@ -57,8 +113,10 @@ body { @apply bg-slate-50 text-slate-800 antialiased; }
 .dark .text-slate-300 { color: #475569; }
 .dark .border-slate-100 { border-color: #1f2937; }
 .dark .border-slate-200 { border-color: #334155; }
+.dark .border-white\/60, .dark .border-white\/70 { border-color: rgba(148, 163, 184, 0.12); }
 
 /* hover variants (utilities carry the :hover, so target them explicitly) */
 .dark .hover\:bg-slate-50:hover { background-color: #1e293b; }
 .dark .hover\:bg-slate-50\/60:hover { background-color: rgba(30, 41, 59, 0.6); }
 .dark .hover\:bg-slate-100:hover { background-color: #334155; }
+.dark .hover\:bg-white:hover { background-color: #1e293b; }
