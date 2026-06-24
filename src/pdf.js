@@ -13,7 +13,10 @@ function companyInfo(company) {
   if (!company) return { name: "", lines: [], logo: "" };
   if (typeof company === "string") return { name: company, lines: [], logo: "" };
   const c = company;
-  const addr = [c.address, [c.city, c.state, c.pincode].filter(Boolean).join(", ")].filter(Boolean).join(", ");
+  // The address comes from a textarea, so collapse any line breaks into ", " —
+  // otherwise the raw newlines confuse line-height math in the PDF header.
+  const street = String(c.address || "").replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();
+  const addr = [street, [c.city, c.state, c.pincode].filter(Boolean).join(", ")].filter(Boolean).join(", ");
   const contact = [c.phone && `Ph: ${c.phone}`, c.email].filter(Boolean).join("  ·  ");
   const lines = [addr, contact, c.gstin && `GSTIN: ${c.gstin}`].filter(Boolean);
   return { name: c.name || "", lines, logo: c.logo || "" };
@@ -53,10 +56,17 @@ function header(doc, title, company, subtitle) {
   doc.setFontSize(16); doc.setTextColor(30, 45, 137); doc.setFont(undefined, "bold");
   doc.text("LedgerFlow", 14, 16);
   let y = 22;
+  // Wrap company text to a width that clears the top-right logo, advancing y by
+  // each rendered sub-line so long/multi-line addresses never overlap.
+  const MAXW = 144; // mm: from the 14mm left margin to just before the logo box
+  const writeBlock = (text, size, lineH) => {
+    doc.setFontSize(size);
+    doc.splitTextToSize(String(text), MAXW).forEach((sub) => { doc.text(sub, 14, y); y += lineH; });
+  };
   doc.setTextColor(60); doc.setFont(undefined, "normal");
-  if (name) { doc.setFontSize(11); doc.text(name, 14, y); y += 5; }
-  doc.setFontSize(8); doc.setTextColor(110);
-  lines.forEach((ln) => { doc.text(ln, 14, y); y += 4; });
+  if (name) writeBlock(name, 11, 5);
+  doc.setTextColor(110);
+  lines.forEach((ln) => writeBlock(ln, 8, 4));
   const titleY = Math.max(32, y + 4);
   doc.setFontSize(13); doc.setTextColor(20); doc.setFont(undefined, "bold");
   doc.text(title, 14, titleY);
@@ -83,20 +93,31 @@ export function exportTablePdf({ title, company, subtitle, columns, rows, fileNa
   doc.save(fileName || `${title.replace(/\s+/g, "-").toLowerCase()}.pdf`);
 }
 
-/** Export a single sale as a tax invoice PDF. */
-export function exportInvoicePdf({ company, currency, doc: sale, customer }) {
+/**
+ * Export a single document as an A4 PDF invoice/bill. Works for both sales
+ * (default) and purchases — `kind` switches the title, party label and which
+ * payment field is shown. `party` is the supplier/customer name (legacy callers
+ * may still pass `customer`).
+ */
+export function exportInvoicePdf({ company, currency, doc, customer, party, kind = "sale", paymentKey }) {
+  const isPurchase = kind === "purchase";
+  const partyName = party ?? customer ?? "";
+  const payKey = paymentKey || (isPurchase ? "paid" : "received");
+  const isReturn = doc.doc_type === "return";
+  const title = isReturn ? (isPurchase ? "Debit Note" : "Credit Note") : (isPurchase ? "Purchase Invoice" : "Tax Invoice");
+
   const pdf = new jsPDF();
-  const titleY = header(pdf, sale.doc_type === "return" ? "Credit Note" : "Tax Invoice", company, `${sale.doc_no} · ${sale.doc_date}`);
+  const titleY = header(pdf, title, company, `${doc.doc_no} · ${doc.doc_date}`);
   pdf.setFontSize(10); pdf.setTextColor(40);
-  pdf.text(`Bill to: ${customer || ""}`, 14, titleY + 14);
+  pdf.text(`${isPurchase ? "Supplier" : "Bill to"}: ${partyName}`, 14, titleY + 14);
   const money = (n) => pdfMoney(n, currency);
   // Only surface the per-line discount column when at least one line carries one.
-  const hasDisc = (sale.lines || []).some((l) => Number(l.discount) > 0);
+  const hasDisc = (doc.lines || []).some((l) => Number(l.discount) > 0);
   const discCell = (l) => Number(l.discount) > 0 ? `- ${money(l.discount)}${l.discount_type === "percent" ? ` (${l.discount_value}%)` : ""}` : "—";
   autoTable(pdf, {
     startY: titleY + 20,
     head: [["Item", "HSN/SAC", "Qty", "Rate", ...(hasDisc ? ["Disc"] : []), "Tax %", "Amount"]],
-    body: (sale.lines || []).map((l) => [l.item_name, l.hsn || "—", l.qty, money(l.unit_price), ...(hasDisc ? [discCell(l)] : []), `${l.tax_rate}%`, money(l.line_total)]),
+    body: (doc.lines || []).map((l) => [l.item_name, l.hsn || "—", l.qty, money(l.unit_price), ...(hasDisc ? [discCell(l)] : []), `${l.tax_rate}%`, money(l.line_total)]),
     styles: { fontSize: 9 }, headStyles: { fillColor: BRAND, textColor: 255 }, margin: { left: 14, right: 14 },
   });
   let y = pdf.lastAutoTable.finalY + 8;
@@ -108,21 +129,22 @@ export function exportInvoicePdf({ company, currency, doc: sale, customer }) {
     y += 6;
   };
   pdf.setFontSize(10); pdf.setTextColor(40);
-  row("Subtotal", money(sale.subtotal));
-  row("Tax", money(sale.tax_total));
-  if (Number(sale.discount)) row(sale.discount_type === "percent" ? `Discount (${sale.discount_value}%)` : "Discount", `- ${money(sale.discount)}`);
-  if (Number(sale.extra_charges)) row(sale.extra_charges_note ? `Charges (${sale.extra_charges_note})` : "Additional charges", money(sale.extra_charges));
-  row("Total amount", money(sale.grand_total), true);
+  row("Subtotal", money(doc.subtotal));
+  row("Tax", money(doc.tax_total));
+  if (Number(doc.discount)) row(doc.discount_type === "percent" ? `Discount (${doc.discount_value}%)` : "Discount", `- ${money(doc.discount)}`);
+  if (Number(doc.extra_charges)) row(doc.extra_charges_note ? `Charges (${doc.extra_charges_note})` : "Additional charges", money(doc.extra_charges));
+  row("Total amount", money(doc.grand_total), true);
 
-  const received = Number(sale.received || 0);
-  if (received > 0) {
-    const acct = (sale.payment_account || "cash").replace(/^./, (c) => c.toUpperCase());
-    row(sale.doc_type === "return" ? `Amount refunded (${acct})` : `Amount received (${acct})`, money(received));
+  const paidAmt = Number(doc[payKey] || 0);
+  if (paidAmt > 0) {
+    const acct = (doc.payment_account || "cash").replace(/^./, (c) => c.toUpperCase());
+    const label = isReturn ? "Amount refunded" : (isPurchase ? "Amount paid" : "Amount received");
+    row(`${label} (${acct})`, money(paidAmt));
   }
-  const due = Number(sale.grand_total || 0) - received;
+  const due = Number(doc.grand_total || 0) - paidAmt;
   row(due > 0 ? "Balance due" : "Balance", money(due), true);
 
-  pdf.save(`${sale.doc_no}.pdf`);
+  pdf.save(`${doc.doc_no}.pdf`);
 }
 
 /** Standard thermal roll widths, labelled by their nominal inch size. */

@@ -218,10 +218,12 @@ export default function TxnModule({ cfg }) {
   };
   const STATUS = { confirmed: "bg-emerald-100 text-emerald-700", draft: "bg-amber-100 text-amber-700", cancelled: "bg-slate-200 text-slate-500" };
 
+  // A4 PDF (Tax Invoice / Purchase Invoice) for a list row — fetch the full doc
+  // (list rows omit line items) first. Works for both sales and purchases.
   const downloadInvoice = async (d) => {
     try {
-      const { data } = await api.get(`/sales/${d.id}`);
-      exportInvoicePdf({ company: me.tenant, currency: cur, doc: data, customer: d[cfg.partyNameKey] });
+      const { data } = await api.get(`/${cfg.endpoint}/${d.id}`);
+      exportInvoicePdf({ company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey], kind: cfg.kind, paymentKey: cfg.paymentKey });
     } catch (e) { toast.error(apiError(e)); }
   };
 
@@ -286,6 +288,9 @@ export default function TxnModule({ cfg }) {
                           <button className="btn-primary btn-sm" onClick={() => act(d.id, "confirm")}>Approve</button>
                           <button className="btn-ghost btn-sm ml-1" onClick={() => act(d.id, "cancel")}>Cancel</button>
                         </>
+                      )}
+                      {cfg.kind === "purchase" && d.status === "confirmed" && (
+                        <button className="btn-ghost btn-sm" onClick={() => downloadInvoice(d)}><FileText className="h-3.5 w-3.5" /> PDF</button>
                       )}
                       {cfg.kind === "sale" && d.status === "confirmed" && (
                         <>
@@ -355,9 +360,13 @@ export default function TxnModule({ cfg }) {
             </table>
           </div>
 
-          {/* Thermal-printer receipt — available for both sales and purchases */}
+          {/* Print / download — A4 PDF and thermal receipt, for both sales and purchases */}
           <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-            <span className="label !mb-0 flex items-center gap-1.5"><Printer className="h-4 w-4 text-slate-400" /> Thermal receipt</span>
+            <span className="label !mb-0 flex items-center gap-1.5"><FileText className="h-4 w-4 text-slate-400" /> Invoice</span>
+            <button className="btn-ghost btn-sm" onClick={() => exportInvoicePdf({ company: me.tenant, currency: cur, doc: viewing, party: viewing._party, kind: cfg.kind, paymentKey: cfg.paymentKey })}>
+              <FileText className="h-3.5 w-3.5" /> A4 PDF
+            </button>
+            <span className="label !mb-0 ml-2 flex items-center gap-1.5"><Printer className="h-4 w-4 text-slate-400" /> Thermal receipt</span>
             {THERMAL_SIZES.map((s) => (
               <button key={s.mm} className="btn-ghost btn-sm" onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)`}>
                 {s.label}
@@ -697,44 +706,62 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
       <BarcodeScanner open={scanCam} onClose={() => setScanCam(false)} onDetect={(code) => { setScanCam(false); addByCode(code); }} />
 
       <div className="mt-3 space-y-2">
-        {/* Purchases get an extra item-wise discount column, so the columns differ. */}
-        <div className="hidden grid-cols-12 gap-2 px-1 text-xs font-semibold text-slate-400 sm:grid">
-          {showLineDisc ? (
-            <>
-              <div className="col-span-3">Item</div><div className="col-span-1">Qty</div>
-              <div className="col-span-2">Price</div><div className="col-span-3">Discount</div>
-              {canGst ? <div className="col-span-2">GST%</div> : <div className="col-span-2" />}<div />
-            </>
-          ) : (
-            <>
+        {showLineDisc ? (
+          // Purchases carry an extra item-wise discount control. A rigid 12-col
+          // grid squeezes the numeric fields too small, so lay the row out with
+          // flex: the item select grows and every other field keeps a fixed,
+          // readable width (wrapping to a new line on narrow screens).
+          <>
+            <div className="hidden items-center gap-2 px-1 text-xs font-semibold text-slate-400 sm:flex">
+              <div className="min-w-[150px] flex-1">Item</div>
+              <div className="w-16">Qty</div>
+              <div className="w-20">Price</div>
+              <div className="w-[136px]">Discount</div>
+              {canGst && <div className="w-16">GST%</div>}
+              <div className="w-9" />
+            </div>
+            {lines.map((l, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2">
+                <select className="input w-full min-w-[150px] sm:w-auto sm:flex-1" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
+                  <option value="">Select item…</option>
+                  {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
+                </select>
+                <input type="number" className="input w-16 shrink-0" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
+                <input type="number" className="input w-20 shrink-0" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
+                <div className="flex shrink-0 gap-1">
+                  <input type="number" min="0" className="input w-[74px]" value={l.discount} onChange={(e) => setLine(i, { discount: e.target.value })} placeholder="0" title="Item-wise discount (before tax)" />
+                  <select className="input w-[58px] !px-1.5" value={l.discount_type} onChange={(e) => setLine(i, { discount_type: e.target.value })} title="Discount type">
+                    <option value="amount">Amt</option>
+                    <option value="percent">%</option>
+                  </select>
+                </div>
+                {canGst && <input type="number" className="input w-16 shrink-0" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />}
+                <button className="grid h-10 w-9 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)}><Trash2 className="h-4 w-4" /></button>
+              </div>
+            ))}
+          </>
+        ) : (
+          <>
+            <div className="hidden grid-cols-12 gap-2 px-1 text-xs font-semibold text-slate-400 sm:grid">
               <div className="col-span-5">Item</div><div className="col-span-2">Qty</div>
               <div className="col-span-2">Price</div>{canGst ? <div className="col-span-2">GST%</div> : <div className="col-span-2" />}<div />
-            </>
-          )}
-        </div>
-        {lines.map((l, i) => (
-          <div key={i} className="grid grid-cols-12 gap-2">
-            <select className={`input col-span-12 ${showLineDisc ? "sm:col-span-3" : "sm:col-span-5"}`} value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
-              <option value="">Select item…</option>
-              {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
-            </select>
-            <input type="number" className={`input ${showLineDisc ? "col-span-3 sm:col-span-1" : "col-span-4 sm:col-span-2"}`} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
-            <input type="number" className={`input ${showLineDisc ? "col-span-3 sm:col-span-2" : "col-span-4 sm:col-span-2"}`} value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
-            {showLineDisc && (
-              <div className="col-span-6 flex gap-1 sm:col-span-3">
-                <input type="number" min="0" className="input" value={l.discount} onChange={(e) => setLine(i, { discount: e.target.value })} placeholder="0" title="Item-wise discount (before tax)" />
-                <select className="input !w-16 !px-1.5" value={l.discount_type} onChange={(e) => setLine(i, { discount_type: e.target.value })} title="Discount type">
-                  <option value="amount">Amt</option>
-                  <option value="percent">%</option>
+            </div>
+            {lines.map((l, i) => (
+              <div key={i} className="grid grid-cols-12 gap-2">
+                <select className="input col-span-12 sm:col-span-5" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
+                  <option value="">Select item…</option>
+                  {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
                 </select>
+                <input type="number" className="input col-span-4 sm:col-span-2" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
+                <input type="number" className="input col-span-4 sm:col-span-2" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
+                {canGst
+                  ? <input type="number" className="input col-span-3 sm:col-span-2" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />
+                  : <div className="hidden sm:block sm:col-span-2" />}
+                <button className="col-span-1 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)}><Trash2 className="h-4 w-4" /></button>
               </div>
-            )}
-            {canGst
-              ? <input type="number" className="input col-span-3 sm:col-span-2" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />
-              : <div className="hidden sm:block sm:col-span-2" />}
-            <button className="col-span-1 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)}><Trash2 className="h-4 w-4" /></button>
-          </div>
-        ))}
+            ))}
+          </>
+        )}
         <div className="flex flex-wrap gap-2">
           <button className="btn-ghost btn-sm" onClick={addLine}><Plus className="h-3.5 w-3.5" /> Add line</button>
           {cfg.kind === "purchase" && (
