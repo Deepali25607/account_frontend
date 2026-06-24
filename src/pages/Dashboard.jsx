@@ -6,6 +6,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, fmtNum, Spinner } from "../ui";
 import PageHead from "../components/PageHead";
+import BusinessAssistant from "../components/BusinessAssistant";
 
 function Kpi({ icon: Icon, label, value, tone = "brand" }) {
   const tones = {
@@ -52,6 +53,10 @@ export default function Dashboard() {
         <Kpi icon={TrendingDown} tone="brand" label="Purchases (30 days)" value={fmtMoney(d.purch30, cur)} />
         <Kpi icon={Boxes} tone="amber" label="Stock value" value={fmtMoney(d.stockValue, cur)} />
         <Kpi icon={AlertTriangle} tone="rose" label="Low-stock items" value={fmtNum(d.lowStock)} />
+      </div>
+
+      <div className="mt-4">
+        <BusinessAssistant cur={cur} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">

@@ -221,13 +221,13 @@ export default function TxnModule({ cfg }) {
   const downloadInvoice = async (d) => {
     try {
       const { data } = await api.get(`/sales/${d.id}`);
-      exportInvoicePdf({ company: me.tenant.name, currency: cur, doc: data, customer: d[cfg.partyNameKey] });
+      exportInvoicePdf({ company: me.tenant, currency: cur, doc: data, customer: d[cfg.partyNameKey] });
     } catch (e) { toast.error(apiError(e)); }
   };
 
   // Thermal receipt for the currently-viewed sale/purchase, sized for 2"/3"/4" rolls.
   const printReceipt = (widthMm) => exportThermalReceipt({
-    company: me.tenant.name, currency: cur, doc: viewing, party: viewing._party,
+    company: me.tenant, currency: cur, doc: viewing, party: viewing._party,
     kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
   });
 
@@ -236,11 +236,14 @@ export default function TxnModule({ cfg }) {
     try {
       const { data } = await api.get(`/${cfg.endpoint}/${d.id}`);
       exportThermalReceipt({
-        company: me.tenant.name, currency: cur, doc: data, party: d[cfg.partyNameKey],
+        company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey],
         kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
       });
     } catch (e) { toast.error(apiError(e)); }
   };
+
+  // Show a per-line discount column in the detail view only when the doc has one.
+  const viewingHasDisc = !!viewing && (viewing.lines || []).some((l) => Number(l.discount) > 0);
 
   return (
     <>
@@ -335,7 +338,7 @@ export default function TxnModule({ cfg }) {
 
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-100">
             <table className="w-full">
-              <thead><tr className="bg-slate-50"><th className="th">Item</th>{can("gst") && <th className="th">HSN/SAC</th>}<th className="th text-right">Qty</th><th className="th text-right">Price</th>{can("gst") && <th className="th text-right">Tax%</th>}<th className="th text-right">Line total</th></tr></thead>
+              <thead><tr className="bg-slate-50"><th className="th">Item</th>{can("gst") && <th className="th">HSN/SAC</th>}<th className="th text-right">Qty</th><th className="th text-right">Price</th>{viewingHasDisc && <th className="th text-right">Disc</th>}{can("gst") && <th className="th text-right">Tax%</th>}<th className="th text-right">Line total</th></tr></thead>
               <tbody>
                 {(viewing.lines || []).map((l) => (
                   <tr key={l.id} className="border-t border-slate-100">
@@ -343,6 +346,7 @@ export default function TxnModule({ cfg }) {
                     {can("gst") && <td className="td text-slate-500">{l.hsn || "—"}</td>}
                     <td className="td text-right">{l.qty}</td>
                     <td className="td text-right">{fmtMoney(l.unit_price, cur)}</td>
+                    {viewingHasDisc && <td className="td text-right text-rose-600">{Number(l.discount) > 0 ? `−${fmtMoney(l.discount, cur)}${l.discount_type === "percent" ? ` (${l.discount_value}%)` : ""}` : "—"}</td>}
                     {can("gst") && <td className="td text-right">{l.tax_rate}%</td>}
                     <td className="td text-right font-medium">{fmtMoney(l.line_total, cur)}</td>
                   </tr>
@@ -367,14 +371,14 @@ export default function TxnModule({ cfg }) {
         </DetailModal>
       )}
 
-      {creating && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} canGst={can("gst")} canLoc={can("multi_location")} onClose={() => setCreating(false)} onSaved={() => { setPage(1); load(); }} toast={toast} />}
+      {creating && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} companyInfo={me.tenant} canGst={can("gst")} canLoc={can("multi_location")} onClose={() => setCreating(false)} onSaved={() => { setPage(1); load(); }} toast={toast} />}
 
-      {editing && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} canGst={can("gst")} canLoc={can("multi_location")} editDoc={editing} onClose={() => setEditing(null)} onSaved={load} toast={toast} />}
+      {editing && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} companyInfo={me.tenant} canGst={can("gst")} canLoc={can("multi_location")} editDoc={editing} onClose={() => setEditing(null)} onSaved={load} toast={toast} />}
     </>
   );
 }
 
-function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose, onSaved, toast }) {
+function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = null, onClose, onSaved, toast }) {
   const isEdit = !!editDoc;
   const [parties, setParties] = useState([]);
   const [saved, setSaved] = useState(null); // set after a sale is recorded → shows the print step
@@ -394,8 +398,8 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   const [extraChargesNote, setExtraChargesNote] = useState(editDoc?.extra_charges_note || "");
   const [lines, setLines] = useState(
     editDoc?.lines?.length
-      ? editDoc.lines.map((l) => ({ item_id: String(l.item_id), qty: l.qty, unit_price: l.unit_price, tax_rate: l.tax_rate }))
-      : [{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]
+      ? editDoc.lines.map((l) => ({ item_id: String(l.item_id), qty: l.qty, unit_price: l.unit_price, tax_rate: l.tax_rate, discount: l.discount_value ?? 0, discount_type: l.discount_type || "amount" }))
+      : [{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0, discount: 0, discount_type: "amount" }]
   );
   const [override, setOverride] = useState(false);
   const [scan, setScan] = useState("");
@@ -413,7 +417,7 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   }, []);
 
   const setLine = (i, patch) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
-  const addLine = () => setLines((ls) => [...ls, { item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]);
+  const addLine = () => setLines((ls) => [...ls, { item_id: "", qty: 1, unit_price: 0, tax_rate: 0, discount: 0, discount_type: "amount" }]);
   const delLine = (i) => setLines((ls) => ls.filter((_, idx) => idx !== i));
 
   // Quick-add a supplier/customer without leaving the bill form. On success the
@@ -456,7 +460,7 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
         reorder_lvl: Number(newItem.reorder_lvl) || 0,
       });
       setItems((xs) => [...xs, created].sort((a, b) => a.name.localeCompare(b.name)));
-      const line = { item_id: String(created.id), qty: 1, unit_price: cfg.kind === "sale" ? created.sale_price : created.cost_price, tax_rate: created.tax_rate || 0 };
+      const line = { item_id: String(created.id), qty: 1, unit_price: cfg.kind === "sale" ? created.sale_price : created.cost_price, tax_rate: created.tax_rate || 0, discount: 0, discount_type: "amount" };
       setLines((ls) => {
         const blankIdx = ls.findIndex((l) => !l.item_id);
         return blankIdx >= 0 ? ls.map((l, i) => (i === blankIdx ? line : l)) : [...ls, line];
@@ -486,7 +490,7 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
     setLines((ls) => {
       const existing = ls.findIndex((l) => String(l.item_id) === String(it.id));
       if (existing >= 0) return ls.map((l, i) => (i === existing ? { ...l, qty: Number(l.qty || 0) + 1 } : l));
-      const line = { item_id: String(it.id), qty: 1, unit_price: cfg.kind === "sale" ? it.sale_price : it.cost_price, tax_rate: it.tax_rate || 0 };
+      const line = { item_id: String(it.id), qty: 1, unit_price: cfg.kind === "sale" ? it.sale_price : it.cost_price, tax_rate: it.tax_rate || 0, discount: 0, discount_type: "amount" };
       const blankIdx = ls.findIndex((l) => !l.item_id);
       return blankIdx >= 0 ? ls.map((l, i) => (i === blankIdx ? line : l)) : [...ls, line];
     });
@@ -500,11 +504,22 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
     setScan("");
   };
 
+  // Item-wise (line-level) discount is offered on purchase bills.
+  const showLineDisc = cfg.kind === "purchase";
+  // Resolve a line's item-wise discount (flat amount or % of the line base),
+  // clamped to the base — mirrors the backend's computeTotals.
+  const lineDiscountOf = (l) => {
+    const base = Number(l.qty || 0) * Number(l.unit_price || 0);
+    const val = Math.max(0, Number(l.discount || 0));
+    const raw = l.discount_type === "percent" ? base * Math.min(val, 100) / 100 : val;
+    return Math.min(raw, base);
+  };
   const totals = lines.reduce((acc, l) => {
     const base = Number(l.qty || 0) * Number(l.unit_price || 0);
-    const tax = canGst ? base * Number(l.tax_rate || 0) / 100 : 0;
-    acc.sub += base; acc.tax += tax; return acc;
-  }, { sub: 0, tax: 0 });
+    const net = base - lineDiscountOf(l);
+    const tax = canGst ? net * Number(l.tax_rate || 0) / 100 : 0;
+    acc.sub += net; acc.tax += tax; acc.lineDisc += base - net; return acc;
+  }, { sub: 0, tax: 0, lineDisc: 0 });
   // Document-level extras applied after tax (matches the backend's computeTotals).
   // Discount can be a flat amount or a % of subtotal; resolve then clamp it.
   const chargesNum = Math.max(0, Number(extraCharges || 0));
@@ -530,6 +545,7 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
         extra_charges_note: extraChargesNote,
         lines: lines.filter((l) => l.item_id).map((l) => ({
           item_id: Number(l.item_id), qty: Number(l.qty), unit_price: Number(l.unit_price), tax_rate: Number(l.tax_rate),
+          discount_type: l.discount_type === "percent" ? "percent" : "amount", discount_value: Number(l.discount) || 0,
         })),
       };
       if (cfg.kind === "sale") payload.allowOverride = override;
@@ -570,11 +586,11 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
   const valid = partyId && lines.some((l) => l.item_id && Number(l.qty) > 0);
 
   // ── Print step (sales): shown after save instead of closing the modal ──
-  const printReceipt = (mm) => exportThermalReceipt({ company, currency: cur, doc: saved, party: saved._party, kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: mm });
-  const printA4 = () => exportInvoicePdf({ company, currency: cur, doc: saved, customer: saved._party });
+  const printReceipt = (mm) => exportThermalReceipt({ company: companyInfo || company, currency: cur, doc: saved, party: saved._party, kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: mm });
+  const printA4 = () => exportInvoicePdf({ company: companyInfo || company, currency: cur, doc: saved, customer: saved._party });
   const startAnother = () => {
     setSaved(null); setPartyId(""); setDocType(cfg.kind); setDocDate(todayStr()); setPaid(0); setPayAccount("cash");
-    setLines([{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0 }]); setOverride(false); setScan("");
+    setLines([{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0, discount: 0, discount_type: "amount" }]); setOverride(false); setScan("");
     setDiscount(0); setDiscountType("amount"); setExtraCharges(0); setExtraChargesNote("");
   };
 
@@ -681,18 +697,38 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
       <BarcodeScanner open={scanCam} onClose={() => setScanCam(false)} onDetect={(code) => { setScanCam(false); addByCode(code); }} />
 
       <div className="mt-3 space-y-2">
+        {/* Purchases get an extra item-wise discount column, so the columns differ. */}
         <div className="hidden grid-cols-12 gap-2 px-1 text-xs font-semibold text-slate-400 sm:grid">
-          <div className="col-span-5">Item</div><div className="col-span-2">Qty</div>
-          <div className="col-span-2">Price</div>{canGst ? <div className="col-span-2">GST%</div> : <div className="col-span-2" />}<div />
+          {showLineDisc ? (
+            <>
+              <div className="col-span-3">Item</div><div className="col-span-1">Qty</div>
+              <div className="col-span-2">Price</div><div className="col-span-3">Discount</div>
+              {canGst ? <div className="col-span-2">GST%</div> : <div className="col-span-2" />}<div />
+            </>
+          ) : (
+            <>
+              <div className="col-span-5">Item</div><div className="col-span-2">Qty</div>
+              <div className="col-span-2">Price</div>{canGst ? <div className="col-span-2">GST%</div> : <div className="col-span-2" />}<div />
+            </>
+          )}
         </div>
         {lines.map((l, i) => (
           <div key={i} className="grid grid-cols-12 gap-2">
-            <select className="input col-span-12 sm:col-span-5" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
+            <select className={`input col-span-12 ${showLineDisc ? "sm:col-span-3" : "sm:col-span-5"}`} value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
               <option value="">Select item…</option>
               {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
             </select>
-            <input type="number" className="input col-span-4 sm:col-span-2" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
-            <input type="number" className="input col-span-4 sm:col-span-2" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
+            <input type="number" className={`input ${showLineDisc ? "col-span-3 sm:col-span-1" : "col-span-4 sm:col-span-2"}`} value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
+            <input type="number" className={`input ${showLineDisc ? "col-span-3 sm:col-span-2" : "col-span-4 sm:col-span-2"}`} value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
+            {showLineDisc && (
+              <div className="col-span-6 flex gap-1 sm:col-span-3">
+                <input type="number" min="0" className="input" value={l.discount} onChange={(e) => setLine(i, { discount: e.target.value })} placeholder="0" title="Item-wise discount (before tax)" />
+                <select className="input !w-16 !px-1.5" value={l.discount_type} onChange={(e) => setLine(i, { discount_type: e.target.value })} title="Discount type">
+                  <option value="amount">Amt</option>
+                  <option value="percent">%</option>
+                </select>
+              </div>
+            )}
             {canGst
               ? <input type="number" className="input col-span-3 sm:col-span-2" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />
               : <div className="hidden sm:block sm:col-span-2" />}
@@ -800,6 +836,7 @@ function CreateDoc({ cfg, cur, company, canGst, canLoc, editDoc = null, onClose,
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
         <div className="text-sm text-slate-500">
+          {totals.lineDisc > 0 && <>Item discount <b className="text-slate-800">−{fmtMoney(totals.lineDisc, cur)}</b> · </>}
           Subtotal <b className="text-slate-800">{fmtMoney(totals.sub, cur)}</b>
           {canGst && <> · Tax <b className="text-slate-800">{fmtMoney(totals.tax, cur)}</b></>}
           {discountAmt > 0 && <> · Discount <b className="text-slate-800">−{fmtMoney(discountAmt, cur)}{discountType === "percent" ? ` (${discountInput}%)` : ""}</b></>}

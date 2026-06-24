@@ -4,6 +4,35 @@ import autoTable from "jspdf-autotable";
 const BRAND = [37, 71, 233]; // brand-600
 
 /**
+ * Normalize the `company` argument, which may be a plain name (legacy callers,
+ * shared public invoices) or the full company-profile object from me.tenant.
+ * Returns { name, lines[] } where lines are the address/contact/GSTIN rows to
+ * print under the company name on documents.
+ */
+function companyInfo(company) {
+  if (!company) return { name: "", lines: [], logo: "" };
+  if (typeof company === "string") return { name: company, lines: [], logo: "" };
+  const c = company;
+  const addr = [c.address, [c.city, c.state, c.pincode].filter(Boolean).join(", ")].filter(Boolean).join(", ");
+  const contact = [c.phone && `Ph: ${c.phone}`, c.email].filter(Boolean).join("  ·  ");
+  const lines = [addr, contact, c.gstin && `GSTIN: ${c.gstin}`].filter(Boolean);
+  return { name: c.name || "", lines, logo: c.logo || "" };
+}
+
+/** Draw the company logo (data-URL) top-right, scaled to fit a box, preserving
+ *  aspect ratio. Never throws — a bad image just skips rendering. */
+function drawLogo(doc, logo) {
+  if (!logo) return;
+  try {
+    const props = doc.getImageProperties(logo);
+    const boxW = 34, boxH = 20, rightX = 196, topY = 12; // mm
+    const scale = Math.min(boxW / props.width, boxH / props.height);
+    const w = props.width * scale, h = props.height * scale;
+    doc.addImage(logo, rightX - w, topY, w, h);
+  } catch { /* unsupported/corrupt image — render the document without it */ }
+}
+
+/**
  * Format money for PDFs using jsPDF's built-in Helvetica, which only has Latin-1
  * glyphs. Symbols inside Latin-1 ($, £, ¥) render fine; ones outside it (₹ U+20B9,
  * € U+20AC) come out as blank/garbled boxes and break right-aligned width measuring.
@@ -16,23 +45,31 @@ export function pdfMoney(n, cur = "INR") {
   return new Intl.NumberFormat("en-IN", { ...opts, currencyDisplay: "code" }).format(Number(n || 0));
 }
 
-/** Shared header for every exported document. */
+/** Shared header for every exported document. Returns the Y of the title line so
+ *  callers can position content below a header that grows with the address block. */
 function header(doc, title, company, subtitle) {
+  const { name, lines, logo } = companyInfo(company);
+  drawLogo(doc, logo);
   doc.setFontSize(16); doc.setTextColor(30, 45, 137); doc.setFont(undefined, "bold");
   doc.text("LedgerFlow", 14, 16);
-  doc.setFontSize(11); doc.setTextColor(60); doc.setFont(undefined, "normal");
-  doc.text(company || "", 14, 22);
+  let y = 22;
+  doc.setTextColor(60); doc.setFont(undefined, "normal");
+  if (name) { doc.setFontSize(11); doc.text(name, 14, y); y += 5; }
+  doc.setFontSize(8); doc.setTextColor(110);
+  lines.forEach((ln) => { doc.text(ln, 14, y); y += 4; });
+  const titleY = Math.max(32, y + 4);
   doc.setFontSize(13); doc.setTextColor(20); doc.setFont(undefined, "bold");
-  doc.text(title, 14, 32);
-  if (subtitle) { doc.setFontSize(9); doc.setTextColor(120); doc.setFont(undefined, "normal"); doc.text(subtitle, 14, 37); }
+  doc.text(title, 14, titleY);
+  if (subtitle) { doc.setFontSize(9); doc.setTextColor(120); doc.setFont(undefined, "normal"); doc.text(subtitle, 14, titleY + 5); }
+  return titleY;
 }
 
 /** Export an array of objects as a titled PDF table. */
 export function exportTablePdf({ title, company, subtitle, columns, rows, fileName }) {
   const doc = new jsPDF();
-  header(doc, title, company, subtitle);
+  const titleY = header(doc, title, company, subtitle);
   autoTable(doc, {
-    startY: subtitle ? 42 : 38,
+    startY: titleY + (subtitle ? 10 : 6),
     head: [columns.map((c) => c.label)],
     body: rows.map((r) => columns.map((c) => (c.format ? c.format(r[c.key], r) : r[c.key] ?? ""))),
     styles: { fontSize: 8, cellPadding: 2 },
@@ -49,14 +86,17 @@ export function exportTablePdf({ title, company, subtitle, columns, rows, fileNa
 /** Export a single sale as a tax invoice PDF. */
 export function exportInvoicePdf({ company, currency, doc: sale, customer }) {
   const pdf = new jsPDF();
-  header(pdf, sale.doc_type === "return" ? "Credit Note" : "Tax Invoice", company, `${sale.doc_no} · ${sale.doc_date}`);
+  const titleY = header(pdf, sale.doc_type === "return" ? "Credit Note" : "Tax Invoice", company, `${sale.doc_no} · ${sale.doc_date}`);
   pdf.setFontSize(10); pdf.setTextColor(40);
-  pdf.text(`Bill to: ${customer || ""}`, 14, 46);
+  pdf.text(`Bill to: ${customer || ""}`, 14, titleY + 14);
   const money = (n) => pdfMoney(n, currency);
+  // Only surface the per-line discount column when at least one line carries one.
+  const hasDisc = (sale.lines || []).some((l) => Number(l.discount) > 0);
+  const discCell = (l) => Number(l.discount) > 0 ? `- ${money(l.discount)}${l.discount_type === "percent" ? ` (${l.discount_value}%)` : ""}` : "—";
   autoTable(pdf, {
-    startY: 52,
-    head: [["Item", "HSN/SAC", "Qty", "Rate", "Tax %", "Amount"]],
-    body: (sale.lines || []).map((l) => [l.item_name, l.hsn || "—", l.qty, money(l.unit_price), `${l.tax_rate}%`, money(l.line_total)]),
+    startY: titleY + 20,
+    head: [["Item", "HSN/SAC", "Qty", "Rate", ...(hasDisc ? ["Disc"] : []), "Tax %", "Amount"]],
+    body: (sale.lines || []).map((l) => [l.item_name, l.hsn || "—", l.qty, money(l.unit_price), ...(hasDisc ? [discCell(l)] : []), `${l.tax_rate}%`, money(l.line_total)]),
     styles: { fontSize: 9 }, headStyles: { fillColor: BRAND, textColor: 255 }, margin: { left: 14, right: 14 },
   });
   let y = pdf.lastAutoTable.finalY + 8;
@@ -146,8 +186,24 @@ export function exportThermalReceipt({ company, currency, doc: txn, party, kind 
       pdf.text(String(l), M, y); pdf.text(String(r), RX, y, { align: "right" }); adv(size);
     };
     const rule = () => { pdf.setLineWidth(0.2); pdf.setDrawColor(160); pdf.line(M, y, RX, y); y += 2.5; };
+    // Centered logo at the top, scaled to fit the roll. Max height grows with the
+    // roll width (2"/3"/4") so the logo stays proportionate and legible; never throws.
+    const centerImage = (dataUrl) => {
+      if (!dataUrl) return;
+      try {
+        const props = pdf.getImageProperties(dataUrl);
+        const maxH = W <= 58 ? 12 : W <= 80 ? 16 : 20;
+        const scale = Math.min(innerW / props.width, maxH / props.height);
+        const w = props.width * scale, h = props.height * scale;
+        pdf.addImage(dataUrl, (W - w) / 2, y, w, h);
+        y += h + 2;
+      } catch { /* unsupported/corrupt image — skip it */ }
+    };
 
-    center(company || "LedgerFlow", fs + 3, true);
+    const co = companyInfo(company);
+    centerImage(co.logo);
+    center(co.name || "LedgerFlow", fs + 3, true);
+    co.lines.forEach((ln) => center(ln, fs - 1));
     center(title, fs, true);
     y += 1;
     left(`No: ${txn.doc_no}`);

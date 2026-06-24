@@ -16,6 +16,7 @@ import Manufacturing from "./pages/Manufacturing";
 import Warehouses from "./pages/Warehouses";
 import Team from "./pages/Team";
 import Appearance from "./pages/Appearance";
+import CompanyProfile from "./pages/CompanyProfile";
 import Billing from "./pages/Billing";
 import Locked from "./pages/Locked";
 import Admin from "./pages/Admin";
@@ -64,6 +65,7 @@ export default function App() {
               <Route path="manufacturing" element={<Feature name="manufacturing" title="Manufacturing"><Manufacturing /></Feature>} />
               <Route path="warehouses" element={<Feature name="multi_location" title="Warehouses"><Warehouses /></Feature>} />
               <Route path="team" element={<Feature name="multi_user" title="Team & Access"><Team /></Feature>} />
+              <Route path="company" element={<CompanyProfile />} />
               <Route path="appearance" element={<Appearance />} />
               <Route path="billing" element={<Billing />} />
             </Route>

@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3,
   BookOpenCheck, Factory, Crown, LogOut, Menu, Lock, UsersRound, Warehouse,
-  Palette, Sun, Moon, Wallet,
+  Palette, Sun, Moon, Wallet, Building2,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useTheme } from "../theme";
@@ -35,6 +35,7 @@ const NAV = [
   { to: "/accounting", label: "Accounting & GST", icon: BookOpenCheck, feature: "accounting" },
   { to: "/manufacturing", label: "Manufacturing", icon: Factory, feature: "manufacturing" },
   { to: "/team", label: "Team & Access", icon: UsersRound, feature: "multi_user" },
+  { to: "/company", label: "Company profile", icon: Building2, feature: null, ownerOnly: true },
   { to: "/appearance", label: "Appearance", icon: Palette, feature: null },
 ];
 
@@ -56,7 +57,7 @@ export default function Layout() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3">
-        {NAV.map((n) => {
+        {NAV.filter((n) => !n.ownerOnly || me.user.role === "owner").map((n) => {
           const locked = n.feature && !can(n.feature);
           const Icon = n.icon;
           return (
