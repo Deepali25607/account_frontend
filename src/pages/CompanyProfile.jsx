@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Building2, Save, ShieldAlert, Image as ImageIcon, Upload } from "lucide-react";
+import { Building2, Save, ShieldAlert, Image as ImageIcon, Upload, Download, DatabaseBackup, AlertTriangle } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Field, Spinner, useToast, apiError } from "../ui";
+import { Field, Spinner, Modal, useToast, apiError } from "../ui";
 import PageHead from "../components/PageHead";
 
 // Fields the owner can maintain. `name` is required; the rest are optional and
@@ -121,7 +121,112 @@ export default function CompanyProfile() {
             {busy ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />} Save profile
           </button>
         </div>
+
+        <BackupRestore />
       </div>
     </>
+  );
+}
+
+/**
+ * Full company backup: download everything to a local JSON file, and restore it
+ * later. Restore REPLACES all current company data, so it's gated behind an
+ * explicit confirmation. Owner-only (the whole page already is).
+ */
+function BackupRestore() {
+  const { me, refresh } = useAuth();
+  const toast = useToast();
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [pending, setPending] = useState(null); // parsed backup awaiting confirmation
+
+  const exportBackup = async () => {
+    setExporting(true);
+    try {
+      const { data } = await api.get("/backup/export");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      const safe = (me.tenant.name || "company").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "company";
+      a.href = url; a.download = `${safe}-backup-${stamp}.json`; a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Backup downloaded — ${data.records} records`);
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setExporting(false); }
+  };
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file later
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (parsed?.format !== "ledgerflow-company-backup") return toast.error("This isn't a LedgerFlow company backup file.");
+        setPending({ ...parsed, _fileName: file.name });
+      } catch { toast.error("Couldn't read this file — is it a valid backup?"); }
+    };
+    reader.onerror = () => toast.error("Couldn't read that file");
+    reader.readAsText(file);
+  };
+
+  const doImport = async () => {
+    setImporting(true);
+    try {
+      const { data } = await api.post("/backup/import", pending);
+      toast.success(`Company restored — ${data.restored} records imported`);
+      setPending(null);
+      await refresh(); // pull restored company name/profile into the app shell
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setImporting(false); }
+  };
+
+  return (
+    <section className="card p-5">
+      <h3 className="mb-1 flex items-center gap-2 font-bold text-slate-800"><DatabaseBackup className="h-4 w-4 text-brand-600" /> Backup &amp; restore</h3>
+      <p className="mb-4 text-sm text-slate-500">Download a complete backup of your company data, or restore one onto this account.</p>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 p-4">
+          <div className="mb-1 font-semibold text-slate-800">Export</div>
+          <p className="mb-3 text-sm text-slate-500">Saves items, parties, purchases, sales, payments, accounting & more to a single JSON file on your device.</p>
+          <button className="btn-ghost" disabled={exporting} onClick={exportBackup}>
+            {exporting ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />} Download backup
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 p-4">
+          <div className="mb-1 font-semibold text-slate-800">Import</div>
+          <p className="mb-3 text-sm text-slate-500">Restore from a backup file. This <b className="text-rose-600">replaces all current company data</b>.</p>
+          <input id="backupfile" type="file" accept="application/json,.json" className="hidden" onChange={onFile} />
+          <label htmlFor="backupfile" className="btn-ghost cursor-pointer"><Upload className="h-4 w-4" /> Choose backup file…</label>
+        </div>
+      </div>
+
+      {pending && (
+        <Modal open title="Restore this backup?" onClose={() => setPending(null)}>
+          <div className="flex items-start gap-3 rounded-xl border border-rose-100 bg-rose-50/60 p-4">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-rose-500" />
+            <div className="text-sm text-slate-700">
+              <p>This will <b>permanently replace</b> all current data for <b>{me.tenant.name}</b> — items, parties, purchases, sales, payments and accounting — with the contents of this file. This can't be undone.</p>
+              <p className="mt-2 text-slate-500">
+                File: <b className="text-slate-700">{pending._fileName}</b>
+                {pending.exportedAt && <> · backed up {String(pending.exportedAt).slice(0, 10)}</>}
+                {typeof pending.records === "number" && <> · {pending.records} records</>}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-400">Tip: export a fresh backup first if you might want to come back to the current data.</p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button className="btn-ghost" onClick={() => setPending(null)}>Cancel</button>
+            <button className="btn-primary !bg-rose-600 hover:!bg-rose-700" disabled={importing} onClick={doImport}>
+              {importing ? <Spinner className="h-4 w-4" /> : <DatabaseBackup className="h-4 w-4" />} Replace &amp; restore
+            </button>
+          </div>
+        </Modal>
+      )}
+    </section>
   );
 }
