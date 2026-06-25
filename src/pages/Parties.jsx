@@ -68,10 +68,15 @@ export default function Parties() {
           title={viewing.name}
           subtitle={resource === "customers" ? "Customer" : "Supplier"}
           fields={[
+            { label: "Contact person", value: viewing.contact_person },
             { label: "Email", value: viewing.email },
             { label: "Phone", value: viewing.phone },
             can("gst") && { label: "Tax / GSTIN", value: viewing.tax_no },
             { label: "Payment terms", value: viewing.payment_terms },
+            { label: "Address", value: viewing.address },
+            { label: "City", value: viewing.city },
+            { label: "State", value: viewing.state },
+            { label: "Pincode", value: viewing.pincode },
             { label: "Added", value: viewing.created_at },
           ]}
         />
@@ -84,6 +89,8 @@ export default function Parties() {
     const [f, setF] = useState({
       name: party.name || "", email: party.email || "", phone: party.phone || "",
       tax_no: party.tax_no || "", payment_terms: party.payment_terms || "",
+      contact_person: party.contact_person || "", address: party.address || "",
+      city: party.city || "", state: party.state || "", pincode: party.pincode || "",
     });
     const [busy, setBusy] = useState(false);
     const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -101,10 +108,15 @@ export default function Parties() {
       <Modal open title={isNew ? `New ${noun}` : `Edit ${noun}`} onClose={onClose}>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2"><Field label="Name"><input className="input" value={f.name} onChange={set("name")} /></Field></div>
-          <Field label="Email"><input className="input" value={f.email} onChange={set("email")} /></Field>
+          <Field label="Contact person"><input className="input" value={f.contact_person} onChange={set("contact_person")} placeholder="e.g. Jane Doe" /></Field>
           <Field label="Phone"><input className="input" value={f.phone} onChange={set("phone")} /></Field>
+          <Field label="Email"><input className="input" value={f.email} onChange={set("email")} /></Field>
           {canGst && <Field label="Tax / GSTIN"><input className="input" value={f.tax_no} onChange={set("tax_no")} /></Field>}
           <Field label="Payment terms"><input className="input" value={f.payment_terms} onChange={set("payment_terms")} placeholder="e.g. Net 30" /></Field>
+          <div className="col-span-2"><Field label="Address"><textarea className="input" rows={2} value={f.address} onChange={set("address")} placeholder="Street, area, landmark" /></Field></div>
+          <Field label="City"><input className="input" value={f.city} onChange={set("city")} /></Field>
+          <Field label="State"><input className="input" value={f.state} onChange={set("state")} /></Field>
+          <Field label="Pincode"><input className="input" value={f.pincode} onChange={set("pincode")} inputMode="numeric" /></Field>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button className="btn-ghost" onClick={onClose}>Cancel</button>

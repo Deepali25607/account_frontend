@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2, FileText, ScanLine, Camera, Printer, CheckCircle2, Pencil, MessageCircle } from "lucide-react";
+import { Plus, Trash2, FileText, ScanLine, Camera, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, Modal, Field, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
@@ -669,23 +669,51 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         )}
       </div>
 
+      {/* Distinct popup for adding a party — emerald "create a record" identity so
+          it's clearly a different surface from the indigo invoice form behind it. */}
       {newParty && (
-        <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
-          <p className="label !mb-2">New {cfg.partyLabel.toLowerCase()}</p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="sm:col-span-1"><Field label="Name"><input className="input" autoFocus value={newParty.name || ""} onChange={setNewPartyField("name")} placeholder="Required" /></Field></div>
+        <Modal
+          open
+          onClose={() => { if (!savingParty) setNewParty(null); }}
+          title={
+            <span className="flex items-center gap-2.5">
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[0_4px_14px_-4px_rgba(16,185,129,.55)]">
+                <UserPlus className="h-[18px] w-[18px]" />
+              </span>
+              <span>New {cfg.partyLabel.toLowerCase()}</span>
+            </span>
+          }
+        >
+          {/* full-bleed context banner — different colour from the invoice form */}
+          <div className="-mx-5 -mt-5 mb-5 border-b border-emerald-100 bg-gradient-to-br from-emerald-50 to-teal-50/60 px-5 py-3">
+            <p className="text-sm font-semibold text-emerald-800">Add a new {cfg.partyLabel.toLowerCase()} to your records</p>
+            <p className="text-xs text-emerald-600/90">Saved to your {cfg.partyLabel.toLowerCase()} list and selected on this {cfg.kind}.</p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2"><Field label="Name"><input className="input" autoFocus value={newParty.name || ""} onChange={setNewPartyField("name")} placeholder="Required" /></Field></div>
+            <Field label="Contact person"><input className="input" value={newParty.contact_person || ""} onChange={setNewPartyField("contact_person")} placeholder="e.g. Jane Doe" /></Field>
             <Field label="Phone"><input className="input" value={newParty.phone || ""} onChange={setNewPartyField("phone")} /></Field>
             <Field label="Email"><input className="input" value={newParty.email || ""} onChange={setNewPartyField("email")} /></Field>
             {canGst && <Field label="Tax / GSTIN"><input className="input" value={newParty.tax_no || ""} onChange={setNewPartyField("tax_no")} /></Field>}
             <Field label="Payment terms"><input className="input" value={newParty.payment_terms || ""} onChange={setNewPartyField("payment_terms")} placeholder="e.g. Net 30" /></Field>
+            <div className="sm:col-span-2"><Field label="Address"><textarea className="input" rows={2} value={newParty.address || ""} onChange={setNewPartyField("address")} placeholder="Street, area, landmark" /></Field></div>
+            <Field label="City"><input className="input" value={newParty.city || ""} onChange={setNewPartyField("city")} /></Field>
+            <Field label="State"><input className="input" value={newParty.state || ""} onChange={setNewPartyField("state")} /></Field>
+            <Field label="Pincode"><input className="input" value={newParty.pincode || ""} onChange={setNewPartyField("pincode")} inputMode="numeric" /></Field>
           </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <button className="btn-ghost btn-sm" onClick={() => setNewParty(null)}>Cancel</button>
-            <button className="btn-primary btn-sm" disabled={savingParty || !String(newParty.name || "").trim()} onClick={saveParty}>
+
+          <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
+            <button className="btn-ghost" onClick={() => setNewParty(null)}>Cancel</button>
+            <button
+              className="btn bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-[0_4px_14px_-4px_rgba(16,185,129,.5)] hover:from-emerald-600 hover:to-teal-700"
+              disabled={savingParty || !String(newParty.name || "").trim()}
+              onClick={saveParty}
+            >
               {savingParty && <Spinner className="h-4 w-4" />} Save {cfg.partyLabel.toLowerCase()}
             </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2">
