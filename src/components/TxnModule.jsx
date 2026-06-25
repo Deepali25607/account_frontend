@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2, FileText, ScanLine, Camera, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { fmtMoney, Modal, Field, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
+import { fmtMoney, Modal, Field, LineCol, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
 import { exportInvoicePdf, exportThermalReceipt, THERMAL_SIZES } from "../pdf";
 import { buildInvoiceLink, invoiceMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
 import PageHead from "./PageHead";
@@ -749,22 +749,34 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
               <div className="w-9" />
             </div>
             {lines.map((l, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-2">
-                <select className="input w-full min-w-[150px] sm:w-auto sm:flex-1" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
-                  <option value="">Select item…</option>
-                  {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
-                </select>
-                <input type="number" className="input w-16 shrink-0" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
-                <input type="number" className="input w-20 shrink-0" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
-                <div className="flex shrink-0 gap-1">
-                  <input type="number" min="0" className="input w-[74px]" value={l.discount} onChange={(e) => setLine(i, { discount: e.target.value })} placeholder="0" title="Item-wise discount (before tax)" />
-                  <select className="input w-[58px] !px-1.5" value={l.discount_type} onChange={(e) => setLine(i, { discount_type: e.target.value })} title="Discount type">
-                    <option value="amount">Amt</option>
-                    <option value="percent">%</option>
+              <div key={i} className="flex flex-wrap items-end gap-2">
+                <LineCol label="Item" className="w-full shrink-0 sm:w-auto sm:flex-1">
+                  <select className="input w-full min-w-[150px]" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
+                    <option value="">Select item…</option>
+                    {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
                   </select>
-                </div>
-                {canGst && <input type="number" className="input w-16 shrink-0" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />}
-                <button className="grid h-10 w-9 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)}><Trash2 className="h-4 w-4" /></button>
+                </LineCol>
+                <LineCol label="Qty" className="shrink-0">
+                  <input type="number" className="input w-16" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
+                </LineCol>
+                <LineCol label="Price" className="shrink-0">
+                  <input type="number" className="input w-20" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
+                </LineCol>
+                <LineCol label="Discount" className="shrink-0">
+                  <div className="flex gap-1">
+                    <input type="number" min="0" className="input w-[74px]" value={l.discount} onChange={(e) => setLine(i, { discount: e.target.value })} placeholder="0" title="Item-wise discount (before tax)" />
+                    <select className="input w-[58px] !px-1.5" value={l.discount_type} onChange={(e) => setLine(i, { discount_type: e.target.value })} title="Discount type">
+                      <option value="amount">Amt</option>
+                      <option value="percent">%</option>
+                    </select>
+                  </div>
+                </LineCol>
+                {canGst && (
+                  <LineCol label="GST%" className="shrink-0">
+                    <input type="number" className="input w-16" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />
+                  </LineCol>
+                )}
+                <button className="grid h-10 w-9 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)} title="Remove line"><Trash2 className="h-4 w-4" /></button>
               </div>
             ))}
           </>
@@ -775,17 +787,25 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
               <div className="col-span-2">Price</div>{canGst ? <div className="col-span-2">GST%</div> : <div className="col-span-2" />}<div />
             </div>
             {lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-12 gap-2">
-                <select className="input col-span-12 sm:col-span-5" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
-                  <option value="">Select item…</option>
-                  {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
-                </select>
-                <input type="number" className="input col-span-4 sm:col-span-2" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
-                <input type="number" className="input col-span-4 sm:col-span-2" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
+              <div key={i} className="grid grid-cols-12 items-end gap-2">
+                <LineCol label="Item" className="col-span-12 sm:col-span-5">
+                  <select className="input w-full" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
+                    <option value="">Select item…</option>
+                    {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
+                  </select>
+                </LineCol>
+                <LineCol label="Qty" className="col-span-4 sm:col-span-2">
+                  <input type="number" className="input w-full" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
+                </LineCol>
+                <LineCol label="Price" className="col-span-4 sm:col-span-2">
+                  <input type="number" className="input w-full" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} placeholder="Price" />
+                </LineCol>
                 {canGst
-                  ? <input type="number" className="input col-span-3 sm:col-span-2" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />
+                  ? <LineCol label="GST%" className="col-span-3 sm:col-span-2">
+                      <input type="number" className="input w-full" value={l.tax_rate} onChange={(e) => setLine(i, { tax_rate: e.target.value })} placeholder="GST%" title="Defaults from item master — editable" />
+                    </LineCol>
                   : <div className="hidden sm:block sm:col-span-2" />}
-                <button className="col-span-1 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)}><Trash2 className="h-4 w-4" /></button>
+                <button className="col-span-1 grid h-10 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => delLine(i)} title="Remove line"><Trash2 className="h-4 w-4" /></button>
               </div>
             ))}
           </>

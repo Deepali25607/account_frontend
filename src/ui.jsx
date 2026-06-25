@@ -73,6 +73,17 @@ export const Field = ({ label, children }) => (
   </label>
 );
 
+/* ── LineCol ──
+   A column inside a multi-field line-item row. Shows the field name above the
+   control on mobile (where the desktop column-header row is hidden); the label
+   collapses on ≥sm so the header row labels the columns instead. */
+export const LineCol = ({ label, className = "", children }) => (
+  <label className={`flex flex-col gap-0.5 ${className}`}>
+    <span className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400 sm:hidden">{label}</span>
+    {children}
+  </label>
+);
+
 /* ── Toasts ── */
 const ToastCtx = createContext(null);
 export const useToast = () => useContext(ToastCtx);

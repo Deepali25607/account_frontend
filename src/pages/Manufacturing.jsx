@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, Factory, Layers, ClipboardList, Calculator, ArrowRight } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { fmtMoney, fmtNum, Modal, Field, useToast, apiError, Empty, Spinner, DetailModal } from "../ui";
+import { fmtMoney, fmtNum, Modal, Field, LineCol, useToast, apiError, Empty, Spinner, DetailModal } from "../ui";
 import PageHead from "../components/PageHead";
 
 const TABS = [
@@ -125,15 +125,23 @@ function BomModal({ cur, onClose, onSaved, toast }) {
           <div className="col-span-2 text-right">Unit cost</div><div className="col-span-2 text-right">Line cost</div><div />
         </div>
         {lines.map((l, i) => (
-          <div key={i} className="grid grid-cols-12 items-center gap-2">
-            <select className="input col-span-12 sm:col-span-5" value={l.item_id} onChange={(e) => setLine(i, { item_id: e.target.value })}>
-              <option value="">Select component…</option>
-              {componentItems.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku}</option>)}
-            </select>
-            <input type="number" className="input col-span-4 sm:col-span-2" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
-            <div className="col-span-3 text-right text-sm text-slate-500 sm:col-span-2">{l.item_id ? fmtMoney(unitCostOf(l.item_id), cur) : "—"}</div>
-            <div className="col-span-4 text-right text-sm font-medium text-slate-700 sm:col-span-2">{l.item_id ? fmtMoney(lineCostOf(l), cur) : "—"}</div>
-            <button className="col-span-1 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}><Trash2 className="h-4 w-4" /></button>
+          <div key={i} className="grid grid-cols-12 items-end gap-2 sm:items-center">
+            <LineCol label="Component" className="col-span-12 sm:col-span-5">
+              <select className="input w-full" value={l.item_id} onChange={(e) => setLine(i, { item_id: e.target.value })}>
+                <option value="">Select component…</option>
+                {componentItems.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku}</option>)}
+              </select>
+            </LineCol>
+            <LineCol label="Qty" className="col-span-4 sm:col-span-2">
+              <input type="number" className="input w-full" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
+            </LineCol>
+            <LineCol label="Unit cost" className="col-span-3 sm:col-span-2">
+              <div className="text-sm text-slate-500 sm:text-right">{l.item_id ? fmtMoney(unitCostOf(l.item_id), cur) : "—"}</div>
+            </LineCol>
+            <LineCol label="Line cost" className="col-span-4 sm:col-span-2">
+              <div className="text-sm font-medium text-slate-700 sm:text-right">{l.item_id ? fmtMoney(lineCostOf(l), cur) : "—"}</div>
+            </LineCol>
+            <button className="col-span-1 grid h-10 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} title="Remove component"><Trash2 className="h-4 w-4" /></button>
           </div>
         ))}
         <button className="btn-ghost btn-sm" onClick={() => setLines((ls) => [...ls, { item_id: "", qty: 1 }])}><Plus className="h-3.5 w-3.5" /> Add component</button>
