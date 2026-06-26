@@ -88,6 +88,9 @@ export default function PublicInvoice() {
               {Number(doc.extra_charges) > 0 && (
                 <div className="flex justify-between text-slate-600"><span>{doc.extra_charges_note ? `Additional charges (${doc.extra_charges_note})` : "Additional charges"}</span><span>{fmtMoney(doc.extra_charges, cur)}</span></div>
               )}
+              {Number(doc.round_off) !== 0 && (
+                <div className="flex justify-between text-slate-600"><span>Round off</span><span>{doc.round_off > 0 ? "+" : "−"}{fmtMoney(Math.abs(doc.round_off), cur)}</span></div>
+              )}
               <div className="flex justify-between border-t border-slate-100 pt-1.5 font-bold text-slate-900"><span>Total</span><span>{fmtMoney(doc.grand_total, cur)}</span></div>
               {received > 0 && (
                 <div className="flex justify-between text-slate-600">

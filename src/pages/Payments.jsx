@@ -105,21 +105,56 @@ export default function Payments() {
   );
 }
 
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 function PayModal({ kind, K, cur, parties, toast, onClose, onSaved }) {
   const [f, setF] = useState({ party_id: "", account: "bank", amount: "", note: "", pay_date: new Date().toISOString().slice(0, 10) });
   const [busy, setBusy] = useState(false);
+  const [bills, setBills] = useState([]);       // open bills for the selected party
+  const [billMode, setBillMode] = useState(false); // settle specific bills vs lump-sum
+  const [alloc, setAlloc] = useState({});       // doc_id -> amount allocated
+
   const selected = parties.find((p) => String(p.id) === String(f.party_id));
   const outstanding = selected ? Number(selected.outstanding || 0) : 0;
-  const amt = Number(f.amount);
-  const surplus = selected && amt > outstanding ? amt - outstanding : 0;
+
+  // Load the party's open bills so the user can allocate against them. Resets on
+  // party change happen in the select's onChange (keeps this effect side-effect
+  // free until the async result lands).
+  useEffect(() => {
+    if (!f.party_id) return;
+    let active = true;
+    api.get("/payments/bills", { params: { kind, party_id: f.party_id } })
+      .then((r) => { if (active) setBills(r.data); })
+      .catch(() => { if (active) setBills([]); });
+    return () => { active = false; };
+  }, [f.party_id, kind]);
+
+  const pickParty = (party_id) => { setF((s) => ({ ...s, party_id })); setBills([]); setAlloc({}); setBillMode(false); };
+
+  const allocTotal = round2(bills.reduce((s, b) => s + (Number(alloc[b.id]) || 0), 0));
+  const amt = billMode ? allocTotal : round2(f.amount);
+  const surplus = !billMode && selected && amt > outstanding ? round2(amt - outstanding) : 0;
+
+  const setBillAmt = (b, val) => {
+    const v = Math.max(0, Math.min(round2(val), Number(b.outstanding)));
+    setAlloc((a) => ({ ...a, [b.id]: v }));
+  };
+  const toggleBill = (b) => setAlloc((a) => ({ ...a, [b.id]: Number(a[b.id]) > 0 ? 0 : Number(b.outstanding) }));
+  const selectAllBills = () => setAlloc(Object.fromEntries(bills.map((b) => [b.id, Number(b.outstanding)])));
 
   const save = async () => {
     setBusy(true);
     try {
-      const { data } = await api.post("/payments", {
+      const payload = {
         kind, party_id: Number(f.party_id), account: f.account,
         amount: amt, pay_date: f.pay_date, note: f.note,
-      });
+      };
+      if (billMode) {
+        payload.allocations = bills
+          .map((b) => ({ doc_id: b.id, amount: Number(alloc[b.id]) || 0 }))
+          .filter((x) => x.amount > 0);
+      }
+      const { data } = await api.post("/payments", payload);
       let msg = `${K.label} of ${fmtMoney(amt, cur)} recorded`;
       if (data.unallocated > 0) msg += ` · ${fmtMoney(data.unallocated, cur)} kept as advance`;
       toast.success(msg);
@@ -132,7 +167,7 @@ function PayModal({ kind, K, cur, parties, toast, onClose, onSaved }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <Field label={K.party}>
-            <select className="input" value={f.party_id} onChange={(e) => setF({ ...f, party_id: e.target.value })}>
+            <select className="input" value={f.party_id} onChange={(e) => pickParty(e.target.value)}>
               <option value="">Select…</option>
               {parties.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -146,9 +181,47 @@ function PayModal({ kind, K, cur, parties, toast, onClose, onSaved }) {
         {selected && (
           <div className="col-span-2 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
             <span className="text-slate-500">Open {K.balLabel}: <span className={`font-bold ${K.amt}`}>{fmtMoney(outstanding, cur)}</span></span>
-            {outstanding > 0 && (
+            {!billMode && outstanding > 0 && (
               <button type="button" onClick={() => setF({ ...f, amount: String(outstanding) })}
                 className="text-xs font-semibold text-brand-600 hover:underline">Pay full</button>
+            )}
+          </div>
+        )}
+
+        {/* Bill-wise allocation — settle chosen invoices/bills instead of a lump sum. */}
+        {selected && bills.length > 0 && (
+          <div className="col-span-2 rounded-lg border border-slate-200">
+            <label className="flex cursor-pointer items-center justify-between px-3 py-2 text-sm">
+              <span className="flex items-center gap-2 font-medium text-slate-700">
+                <input type="checkbox" checked={billMode} onChange={(e) => { setBillMode(e.target.checked); setAlloc({}); }} />
+                Settle specific bills ({bills.length} open)
+              </span>
+              {billMode && (
+                <button type="button" onClick={selectAllBills} className="text-xs font-semibold text-brand-600 hover:underline">Select all</button>
+              )}
+            </label>
+            {billMode && (
+              <div className="max-h-56 overflow-auto border-t border-slate-100">
+                {bills.map((b) => {
+                  const on = Number(alloc[b.id]) > 0;
+                  return (
+                    <div key={b.id} className="flex items-center gap-2 border-b border-slate-50 px-3 py-2 text-sm last:border-0">
+                      <input type="checkbox" checked={on} onChange={() => toggleBill(b)} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium text-slate-700">{b.doc_no}</div>
+                        <div className="text-xs text-slate-400">{b.doc_date} · open {fmtMoney(b.outstanding, cur)}</div>
+                      </div>
+                      <input type="number" min="0" step="0.01" max={b.outstanding}
+                        className="input w-28 text-right" placeholder="0"
+                        value={alloc[b.id] ?? ""} onChange={(e) => setBillAmt(b, e.target.value)} />
+                    </div>
+                  );
+                })}
+                <div className="flex items-center justify-between bg-slate-50 px-3 py-2 text-sm font-semibold">
+                  <span className="text-slate-500">Allocated</span>
+                  <span className={K.amt}>{fmtMoney(allocTotal, cur)}</span>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -163,7 +236,11 @@ function PayModal({ kind, K, cur, parties, toast, onClose, onSaved }) {
         </Field>
         <div className="col-span-2">
           <Field label="Amount">
-            <input type="number" min="0" step="0.01" className="input" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+            {billMode ? (
+              <input type="number" className="input bg-slate-50" value={allocTotal} readOnly title="Sum of the bills you've allocated" />
+            ) : (
+              <input type="number" min="0" step="0.01" className="input" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+            )}
           </Field>
         </div>
         <div className="col-span-2">

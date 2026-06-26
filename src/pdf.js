@@ -133,6 +133,7 @@ export function exportInvoicePdf({ company, currency, doc, customer, party, kind
   row("Tax", money(doc.tax_total));
   if (Number(doc.discount)) row(doc.discount_type === "percent" ? `Discount (${doc.discount_value}%)` : "Discount", `- ${money(doc.discount)}`);
   if (Number(doc.extra_charges)) row(doc.extra_charges_note ? `Charges (${doc.extra_charges_note})` : "Additional charges", money(doc.extra_charges));
+  if (Number(doc.round_off)) row("Round off", `${doc.round_off > 0 ? "+ " : "- "}${money(Math.abs(doc.round_off))}`);
   row("Total amount", money(doc.grand_total), true);
 
   const paidAmt = Number(doc[payKey] || 0);
@@ -244,6 +245,7 @@ export function exportThermalReceipt({ company, currency, doc: txn, party, kind 
     if (Number(txn.tax_total)) lr("Tax", money(txn.tax_total));
     if (Number(txn.discount)) lr("Discount", `-${money(txn.discount)}`);
     if (Number(txn.extra_charges)) lr("Charges", money(txn.extra_charges));
+    if (Number(txn.round_off)) lr("Round off", `${txn.round_off > 0 ? "+" : "-"}${money(Math.abs(txn.round_off))}`);
     lr("Total", money(txn.grand_total), true, fs + 1);
     const paidAmt = Number(txn[paymentKey] || 0);
     if (paidAmt > 0) {

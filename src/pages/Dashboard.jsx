@@ -14,6 +14,7 @@ function Kpi({ icon: Icon, label, value, tone = "brand" }) {
     emerald: "from-emerald-400 to-emerald-600 shadow-[0_4px_14px_-4px_rgba(16,185,129,.5)]",
     amber: "from-amber-400 to-amber-600 shadow-[0_4px_14px_-4px_rgba(245,158,11,.5)]",
     rose: "from-rose-400 to-rose-600 shadow-[0_4px_14px_-4px_rgba(244,63,94,.5)]",
+    violet: "from-violet-400 to-violet-600 shadow-[0_4px_14px_-4px_rgba(139,92,246,.5)]",
   };
   return (
     <div className="glass card-interactive p-5">
@@ -44,7 +45,7 @@ export default function Dashboard() {
     <>
       <PageHead title={`Welcome back 👋`} subtitle={`Loading your overview…`} />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+        {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
       </div>
       <div className="mt-4"><Skeleton className="h-40 w-full rounded-2xl" /></div>
     </>
@@ -59,6 +60,7 @@ export default function Dashboard() {
       <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi icon={TrendingUp} tone="emerald" label="Sales (30 days)" value={fmtMoney(d.sales30, cur)} />
         <Kpi icon={TrendingDown} tone="brand" label="Purchases (30 days)" value={fmtMoney(d.purch30, cur)} />
+        <Kpi icon={Truck} tone="violet" label="Supplier outstanding" value={fmtMoney(d.payables, cur)} />
         <Kpi icon={Boxes} tone="amber" label="Stock value" value={fmtMoney(d.stockValue, cur)} />
         <Kpi icon={AlertTriangle} tone="rose" label="Low-stock items" value={fmtNum(d.lowStock)} />
       </div>

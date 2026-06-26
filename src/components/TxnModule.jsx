@@ -7,6 +7,7 @@ import { exportInvoicePdf, exportThermalReceipt, THERMAL_SIZES } from "../pdf";
 import { buildInvoiceLink, invoiceMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
 import PageHead from "./PageHead";
 import BarcodeScanner from "./BarcodeScanner";
+import ItemPicker from "./ItemPicker";
 
 const PAGE_SIZE = 20;
 const todayStr = () => new Date().toISOString().slice(0, 10); // matches the backend's default doc_date
@@ -330,9 +331,10 @@ export default function TxnModule({ cfg }) {
           {/* Money summary — Total and Amount received/paid sit side by side */}
           <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-4">
             <Sum label="Subtotal" value={fmtMoney(viewing.subtotal, cur)} />
-            {can("gst") && <Sum label="Tax" value={fmtMoney(viewing.tax_total, cur)} />}
+            {can("gst") && <Sum label={Number(viewing.tax_inclusive) ? "Tax (incl.)" : "Tax"} value={fmtMoney(viewing.tax_total, cur)} />}
             {viewing.discount > 0 && <Sum label={viewing.discount_type === "percent" ? `Discount (${viewing.discount_value}%)` : "Discount"} value={`−${fmtMoney(viewing.discount, cur)}`} />}
             {viewing.extra_charges > 0 && <Sum label={viewing.extra_charges_note ? `Additional charges (${viewing.extra_charges_note})` : "Additional charges"} value={`+${fmtMoney(viewing.extra_charges, cur)}`} />}
+            {Number(viewing.round_off) !== 0 && <Sum label="Round off" value={`${viewing.round_off > 0 ? "+" : "−"}${fmtMoney(Math.abs(viewing.round_off), cur)}`} />}
             <Sum label="Total amount" value={fmtMoney(viewing.grand_total, cur)} strong />
             <Sum label={cfg.kind === "sale" ? "Amount received" : "Amount paid"} value={fmtMoney(viewing[cfg.paymentKey], cur)} accent />
             {viewing[cfg.paymentKey] > 0 && (
@@ -405,6 +407,8 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
   const [discountType, setDiscountType] = useState(editDoc?.discount_type || "amount");
   const [extraCharges, setExtraCharges] = useState(editDoc?.extra_charges ?? 0);
   const [extraChargesNote, setExtraChargesNote] = useState(editDoc?.extra_charges_note || "");
+  const [roundOff, setRoundOff] = useState(!!Number(editDoc?.round_off)); // round the grand total to a whole number
+  const [taxInclusive, setTaxInclusive] = useState(!!Number(editDoc?.tax_inclusive)); // sale only: prices include GST
   const [lines, setLines] = useState(
     editDoc?.lines?.length
       ? editDoc.lines.map((l) => ({ item_id: String(l.item_id), qty: l.qty, unit_price: l.unit_price, tax_rate: l.tax_rate, discount: l.discount_value ?? 0, discount_type: l.discount_type || "amount" }))
@@ -523,11 +527,17 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
     const raw = l.discount_type === "percent" ? base * Math.min(val, 100) / 100 : val;
     return Math.min(raw, base);
   };
+  // Sale invoices can be entered GST-inclusive (price embeds tax, so we back it
+  // out) or exclusive (tax added on top). Mirrors the backend's computeTotals.
+  const incl = cfg.kind === "sale" && taxInclusive;
   const totals = lines.reduce((acc, l) => {
     const base = Number(l.qty || 0) * Number(l.unit_price || 0);
     const net = base - lineDiscountOf(l);
-    const tax = canGst ? net * Number(l.tax_rate || 0) / 100 : 0;
-    acc.sub += net; acc.tax += tax; acc.lineDisc += base - net; return acc;
+    const rate = canGst ? Number(l.tax_rate || 0) : 0;
+    let taxableNet, tax;
+    if (incl && rate > 0) { tax = net - net / (1 + rate / 100); taxableNet = net - tax; }
+    else { tax = net * rate / 100; taxableNet = net; }
+    acc.sub += taxableNet; acc.tax += tax; acc.lineDisc += base - net; return acc;
   }, { sub: 0, tax: 0, lineDisc: 0 });
   // Document-level extras applied after tax (matches the backend's computeTotals).
   // Discount can be a flat amount or a % of subtotal; resolve then clamp it.
@@ -537,7 +547,11 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
     ? totals.sub * Math.min(discountInput, 100) / 100
     : discountInput;
   const discountAmt = Math.min(discountResolved, totals.sub + totals.tax + chargesNum);
-  const grand = Math.max(0, totals.sub + totals.tax - discountAmt + chargesNum);
+  const rawGrand = Math.max(0, totals.sub + totals.tax - discountAmt + chargesNum);
+  // Optional round-off mirrors the backend: snap to the nearest whole unit and
+  // surface the signed adjustment so the user sees how the total was cleaned up.
+  const roundOffAmt = roundOff ? Math.round(rawGrand) - rawGrand : 0;
+  const grand = Math.round((rawGrand + roundOffAmt) * 100) / 100;
 
   const save = async () => {
     setBusy(true);
@@ -552,12 +566,13 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         discount_value: discountInput,
         extra_charges: chargesNum,
         extra_charges_note: extraChargesNote,
+        round_off: roundOff,
         lines: lines.filter((l) => l.item_id).map((l) => ({
           item_id: Number(l.item_id), qty: Number(l.qty), unit_price: Number(l.unit_price), tax_rate: Number(l.tax_rate),
           discount_type: l.discount_type === "percent" ? "percent" : "amount", discount_value: Number(l.discount) || 0,
         })),
       };
-      if (cfg.kind === "sale") payload.allowOverride = override;
+      if (cfg.kind === "sale") { payload.allowOverride = override; payload.tax_inclusive = taxInclusive; }
       if (canLoc && locationId) payload.location_id = Number(locationId);
 
       if (isEdit) {
@@ -600,7 +615,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
   const startAnother = () => {
     setSaved(null); setPartyId(""); setDocType(cfg.kind); setDocDate(todayStr()); setPaid(0); setPayAccount("cash");
     setLines([{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0, discount: 0, discount_type: "amount" }]); setOverride(false); setScan("");
-    setDiscount(0); setDiscountType("amount"); setExtraCharges(0); setExtraChargesNote("");
+    setDiscount(0); setDiscountType("amount"); setExtraCharges(0); setExtraChargesNote(""); setRoundOff(false); setTaxInclusive(false);
   };
 
   if (saved) {
@@ -716,6 +731,23 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         </Modal>
       )}
 
+      {cfg.kind === "sale" && canGst && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-600">Item prices are</span>
+          <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-sm font-semibold">
+            <button type="button" onClick={() => setTaxInclusive(false)}
+              className={`rounded-md px-3 py-1.5 transition ${!taxInclusive ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+              Exclusive of GST
+            </button>
+            <button type="button" onClick={() => setTaxInclusive(true)}
+              className={`rounded-md px-3 py-1.5 transition ${taxInclusive ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+              Inclusive of GST
+            </button>
+          </div>
+          <span className="text-xs text-slate-400">{taxInclusive ? "GST is backed out of the entered price" : "GST is added on top of the entered price"}</span>
+        </div>
+      )}
+
       <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2">
         <ScanLine className="h-5 w-5 shrink-0 text-brand-500" />
         <input
@@ -751,10 +783,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
             {lines.map((l, i) => (
               <div key={i} className="flex flex-wrap items-end gap-2">
                 <LineCol label="Item" className="w-full shrink-0 sm:w-auto sm:flex-1">
-                  <select className="input w-full min-w-[150px]" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
-                    <option value="">Select item…</option>
-                    {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
-                  </select>
+                  <ItemPicker items={items} value={l.item_id} onPick={(id) => onItemPick(i, id)} className="min-w-[150px]" />
                 </LineCol>
                 <LineCol label="Qty" className="shrink-0">
                   <input type="number" className="input w-16" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
@@ -789,10 +818,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
             {lines.map((l, i) => (
               <div key={i} className="grid grid-cols-12 items-end gap-2">
                 <LineCol label="Item" className="col-span-12 sm:col-span-5">
-                  <select className="input w-full" value={l.item_id} onChange={(e) => onItemPick(i, e.target.value)}>
-                    <option value="">Select item…</option>
-                    {items.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku} (stock {it.stock_qty})</option>)}
-                  </select>
+                  <ItemPicker items={items} value={l.item_id} onPick={(id) => onItemPick(i, id)} />
                 </LineCol>
                 <LineCol label="Qty" className="col-span-4 sm:col-span-2">
                   <input type="number" className="input w-full" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="Qty" />
@@ -886,6 +912,12 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
             <input type="text" className="input" value={extraChargesNote} onChange={(e) => setExtraChargesNote(e.target.value)} placeholder="e.g. Freight, Packing, Insurance" />
           </Field>
         </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
+          <input type="checkbox" checked={roundOff} onChange={(e) => setRoundOff(e.target.checked)} />
+          Round off total{roundOff && Math.abs(roundOffAmt) > 0.0001 && (
+            <span className="text-slate-400">({roundOffAmt > 0 ? "+" : "−"}{fmtMoney(Math.abs(roundOffAmt), cur)})</span>
+          )}
+        </label>
       </div>
 
       <div className="mt-4 sm:max-w-xs">
@@ -916,6 +948,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
           {canGst && <> · Tax <b className="text-slate-800">{fmtMoney(totals.tax, cur)}</b></>}
           {discountAmt > 0 && <> · Discount <b className="text-slate-800">−{fmtMoney(discountAmt, cur)}{discountType === "percent" ? ` (${discountInput}%)` : ""}</b></>}
           {chargesNum > 0 && <> · Charges <b className="text-slate-800">+{fmtMoney(chargesNum, cur)}</b></>}
+          {Math.abs(roundOffAmt) > 0.0001 && <> · Round off <b className="text-slate-800">{roundOffAmt > 0 ? "+" : "−"}{fmtMoney(Math.abs(roundOffAmt), cur)}</b></>}
           {" "}· Total <b className="text-brand-700">{fmtMoney(grand, cur)}</b>
         </div>
         <div className="flex gap-2">
