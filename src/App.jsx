@@ -1,4 +1,6 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { App as CapApp } from "@capacitor/app";
 import { AuthProvider, useAuth } from "./auth";
 import { ThemeProvider } from "./theme";
 import { ToastProvider, Spinner } from "./ui";
@@ -21,6 +23,22 @@ import Billing from "./pages/Billing";
 import Locked from "./pages/Locked";
 import Admin from "./pages/Admin";
 import PublicInvoice from "./pages/PublicInvoice";
+
+// Wire the Android hardware/gesture back button to SPA history: go back when
+// there's somewhere to go, otherwise exit the app. No-op on the web.
+function NativeBackButton() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!window.Capacitor?.isNativePlatform?.()) return;
+    let handle;
+    CapApp.addListener("backButton", ({ canGoBack }) => {
+      if (canGoBack && window.history.length > 1) navigate(-1);
+      else CapApp.exitApp();
+    }).then((h) => { handle = h; });
+    return () => { handle?.remove(); };
+  }, [navigate]);
+  return null;
+}
 
 function Gate({ children }) {
   const { me, loading } = useAuth();
@@ -49,6 +67,7 @@ export default function App() {
     <AuthProvider>
       <ToastProvider>
         <BrowserRouter>
+          <NativeBackButton />
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/i" element={<PublicInvoice />} />{/* public, no-login shareable invoice */}
