@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3,
   BookOpenCheck, Factory, Crown, LogOut, Menu, Lock, UsersRound, Warehouse,
-  Palette, Sun, Moon, Wallet, Building2,
+  Palette, Sun, Moon, Wallet, Building2, Smartphone, Download, X,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useTheme } from "../theme";
@@ -43,6 +43,12 @@ export default function Layout() {
   const { me, logout, can } = useAuth();
   const { toggleMode, dark } = useTheme();
   const [open, setOpen] = useState(false);
+  // "Get the Android app" banner — hidden inside the native app and once dismissed.
+  const isNativeApp = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+  const [appBanner, setAppBanner] = useState(() => {
+    try { return !isNativeApp && localStorage.getItem("hideAppBanner") !== "1"; } catch { return !isNativeApp; }
+  });
+  const dismissAppBanner = () => { try { localStorage.setItem("hideAppBanner", "1"); } catch { /* ignore */ } setAppBanner(false); };
   const nav = useNavigate();
   if (!me) return null;
 
@@ -134,6 +140,20 @@ export default function Layout() {
             </button>
           </div>
         </header>
+
+        {appBanner && (
+          <div className="flex items-center gap-2.5 border-b border-brand-100 bg-gradient-to-r from-brand-50 to-white px-4 py-2 text-sm sm:px-6">
+            <Smartphone className="h-4 w-4 shrink-0 text-brand-600" />
+            <span className="font-medium text-slate-700">Get the LedgerFlow Android app</span>
+            <a href="/LedgerFlow-1.0.0.apk" download
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95">
+              <Download className="h-3.5 w-3.5" /> Download
+            </a>
+            <button onClick={dismissAppBanner} title="Dismiss" className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <main className="flex-1 overflow-auto px-4 pt-4 pb-28 sm:px-6 sm:pt-6 md:pb-6">
           <div className="mx-auto max-w-6xl">
