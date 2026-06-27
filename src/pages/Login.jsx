@@ -2,7 +2,11 @@ import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { Field, apiError, Spinner } from "../ui";
-import { Check } from "lucide-react";
+import { Check, Download } from "lucide-react";
+
+// Hide the "download the app" link when we're already running inside the app.
+const isNativeApp = () => typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
+const APK_URL = "/LedgerFlow-1.0.0.apk";
 
 const TIERS = [
   { id: "basic", name: "Basic", note: "Purchases, Sales, Inventory, Reports" },
@@ -122,6 +126,13 @@ export default function Login() {
           <button onClick={useDemo} className="mt-4 w-full text-center text-sm text-slate-500 transition hover:text-brand-600">
             Use demo account (owner@demo.com / demo1234)
           </button>
+
+          {!isNativeApp() && (
+            <a href={APK_URL} download
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-600 active:scale-95">
+              <Download className="h-4 w-4" /> Download Android app (.apk)
+            </a>
+          )}
           </div>
         </div>
       </div>

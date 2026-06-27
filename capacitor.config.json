@@ -3,7 +3,9 @@
   "appName": "LedgerFlow",
   "webDir": "dist",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "url": "https://account-frontend-lilac.vercel.app",
+    "cleartext": false
   },
   "plugins": {
     "SplashScreen": {
