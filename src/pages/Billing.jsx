@@ -24,6 +24,10 @@ export default function Billing() {
   const [ask, setAsk] = useState(null);   // tier being requested
   const current = me.tenant.tier;
   const isOwner = me.user.role === "owner";
+  const trial = me.trial || {};
+  // While on trial the org sits on 'premium' but hasn't paid, so no plan is the
+  // "active" paid one yet — every tier is selectable as a first subscription.
+  const activeTier = trial.onTrial ? null : current;
 
   const load = () => {
     api.get("/auth/pricing").then((r) => setPrices(Object.fromEntries(r.data.map((p) => [p.tier, p])))).catch(() => {});
@@ -40,12 +44,22 @@ export default function Billing() {
 
       {!isOwner && <p className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">Only the account owner can request a plan change.</p>}
 
+      {trial.onTrial && (
+        <div className={`mb-4 rounded-xl px-4 py-3 text-sm ${trial.expired ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}>
+          {trial.expired
+            ? "Your 14-day free trial has ended. Choose a plan below and complete payment to restore full access."
+            : `You're on a 14-day free trial with full access — ${trial.daysLeft} ${trial.daysLeft === 1 ? "day" : "days"} left. Pick a plan to keep going after it ends.`}
+        </div>
+      )}
+
       {openReq && <RequestStatus req={openReq} onChanged={() => { load(); refresh(); }} toast={toast} isOwner={isOwner} />}
 
       <div className="grid gap-4 lg:grid-cols-3">
         {TIERS.map((t) => {
-          const isCurrent = t.id === current;
-          const direction = RANK[t.id] > RANK[current] ? "Request upgrade" : "Request downgrade";
+          const isCurrent = t.id === activeTier;
+          const direction = trial.onTrial
+            ? `Choose ${t.name}`
+            : (RANK[t.id] > RANK[current] ? "Request upgrade" : "Request downgrade");
           const highlight = t.id === "premium";
           return (
             <div key={t.id} className={`card relative flex flex-col p-6 ${isCurrent ? "ring-2 ring-brand-500" : ""}`}>

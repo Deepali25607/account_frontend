@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2, FileText, ScanLine, Camera, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus } from "lucide-react";
+import { Plus, Trash2, FileText, ScanLine, Camera, Barcode, Eye, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, Modal, Field, LineCol, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
@@ -7,6 +7,7 @@ import { exportInvoicePdf, exportThermalReceipt, THERMAL_SIZES } from "../pdf";
 import { buildInvoiceLink, invoiceMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
 import PageHead from "./PageHead";
 import BarcodeScanner from "./BarcodeScanner";
+import BarcodeView from "./BarcodeView";
 import ItemPicker from "./ItemPicker";
 
 const PAGE_SIZE = 20;
@@ -27,6 +28,16 @@ const SKU_PREFIX = { raw: "RM", semi_finished: "SF", finished: "FG", trading: "T
 // A blank item for the inline quick-add — mirrors `blank` in Inventory.jsx so the
 // in-bill form can capture every field the full item master supports.
 const BLANK_ITEM = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
+
+// Generate a valid EAN-13 barcode for in-house items (mirrors genBarcode in
+// Inventory.jsx). Prefix "2" is reserved by GS1 for in-store/private numbering,
+// so generated codes never collide with real manufacturer barcodes.
+function genBarcode() {
+  const base = ("2" + String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 100)).padStart(2, "0")).slice(0, 12).padEnd(12, "0");
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
+  return base + ((10 - (sum % 10)) % 10);
+}
 
 /** One figure in the document money summary. `strong` = bold total, `accent` = brand colour. */
 function Sum({ label, value, strong, accent }) {
@@ -420,6 +431,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
   const [newItem, setNewItem] = useState(null); // null | full item draft (see BLANK_ITEM) when quick-adding
   const [savingItem, setSavingItem] = useState(false);
   const [itemScanCam, setItemScanCam] = useState(false); // camera scan for the new-item barcode field
+  const [showItemBarcode, setShowItemBarcode] = useState(false); // view/print the new-item barcode
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -861,12 +873,23 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
               </select>
             </Field>
             <Field label="Category"><input className="input" value={newItem.category || ""} onChange={setNewItemField("category")} /></Field>
-            <div className="sm:col-span-3"><Field label="Barcode (scan or type — optional)">
+            <div className="sm:col-span-3"><Field label="Barcode (generate or type — optional)">
               <div className="flex gap-2">
                 <input className="input" value={newItem.barcode || ""} onChange={setNewItemField("barcode")} placeholder="e.g. 8901234567890" autoComplete="off" />
-                <button type="button" onClick={() => setItemScanCam(true)} className="btn-ghost shrink-0" title="Scan with camera">
-                  <Camera className="h-4 w-4" /> Scan
-                </button>
+                {newItem.barcode ? (
+                  <button type="button" onClick={() => setShowItemBarcode(true)} className="btn-ghost shrink-0" title="View, download or print the barcode">
+                    <Eye className="h-4 w-4" /> View Barcode
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => setNewItem((it) => ({ ...it, barcode: genBarcode() }))} className="btn-ghost shrink-0" title="Generate a barcode">
+                      <Barcode className="h-4 w-4" /> Generate
+                    </button>
+                    <button type="button" onClick={() => setItemScanCam(true)} className="btn-ghost shrink-0" title="Scan a barcode with the camera">
+                      <ScanLine className="h-4 w-4" /> Add Barcode
+                    </button>
+                  </>
+                )}
               </div>
             </Field></div>
             {canGst && <Field label="HSN/SAC"><input className="input" value={newItem.hsn || ""} onChange={setNewItemField("hsn")} placeholder="e.g. 9401" autoComplete="off" /></Field>}
@@ -884,6 +907,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
             </button>
           </div>
           <BarcodeScanner open={itemScanCam} onClose={() => setItemScanCam(false)} onDetect={(code) => { setItemScanCam(false); setNewItem((it) => ({ ...it, barcode: code })); toast.success("Barcode captured"); }} />
+          <BarcodeView open={showItemBarcode} value={newItem.barcode} name={newItem.name} onClose={() => setShowItemBarcode(false)} />
         </div>
       )}
 

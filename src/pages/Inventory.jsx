@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Plus, Search, SlidersHorizontal, Package, Pencil, Trash2, Camera, Upload, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Plus, Search, SlidersHorizontal, Package, Pencil, Trash2, ScanLine, Barcode, Eye, Upload, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, fmtNum, Modal, Field, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
 import PageHead from "../components/PageHead";
 import BarcodeScanner from "../components/BarcodeScanner";
+import BarcodeView from "../components/BarcodeView";
 
 // Kept in sync with MATERIAL_TYPES in account-backend/src/routes/masters.js
 const MATERIAL_TYPES = [
@@ -26,6 +27,16 @@ const MATERIAL_STYLE = {
 
 const blank = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
 const PAGE_SIZE = 20;
+
+// Generate a valid EAN-13 barcode for in-house items. Prefix "2" is reserved by
+// GS1 for in-store/private numbering, so generated codes never collide with real
+// manufacturer barcodes. Payload = "2" + time + randomness; the 13th is the EAN-13 check digit.
+function genBarcode() {
+  const base = ("2" + String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 100)).padStart(2, "0")).slice(0, 12).padEnd(12, "0");
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
+  return base + ((10 - (sum % 10)) % 10);
+}
 
 // CSV import template + minimal RFC-4180-ish parser (handles quotes & embedded commas).
 const IMPORT_COLUMNS = ["sku", "name", "material_type", "hsn", "barcode", "category", "uom", "cost_price", "sale_price", "tax_rate", "stock_qty", "reorder_lvl"];
@@ -66,10 +77,20 @@ export default function Inventory() {
   const [importing, setImporting] = useState(false);
   const [viewing, setViewing] = useState(null);   // item being viewed
   const [movements, setMovements] = useState(null);
+  const [scanLookup, setScanLookup] = useState(false); // camera open for scan-to-open
 
   const openItem = (it) => {
     setViewing(it); setMovements(null);
     api.get(`/items/${it.id}/movements`).then((r) => setMovements(r.data));
+  };
+
+  // Scan a physical barcode and jump straight to that item — no manual search.
+  const lookupByCode = async (code) => {
+    setScanLookup(false);
+    try {
+      const { data } = await api.get("/items/lookup", { params: { code } });
+      openItem(data);
+    } catch (e) { toast.error(apiError(e)); }
   };
 
   const load = () => {
@@ -99,6 +120,9 @@ export default function Inventory() {
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input className="input pl-9" placeholder="Search by name or SKU…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        <button onClick={() => setScanLookup(true)} className="btn-ghost" title="Scan a barcode to open the item">
+          <ScanLine className="h-4 w-4" /> Scan
+        </button>
         <button onClick={() => setLowOnly((v) => !v)} className={`btn-ghost ${lowOnly ? "border-rose-300 text-rose-600" : ""}`}>
           <SlidersHorizontal className="h-4 w-4" /> Low stock only
         </button>
@@ -197,6 +221,7 @@ export default function Inventory() {
       )}
 
       {edit && <ItemModal item={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} canGst={can("gst")} />}
+      <BarcodeScanner open={scanLookup} onClose={() => setScanLookup(false)} onDetect={lookupByCode} />
       {adjust && <AdjustModal item={adjust} cur={cur} onClose={() => setAdjust(null)} onSaved={() => { setAdjust(null); load(); }} />}
       {importing && <ImportModal onClose={() => setImporting(false)} reload={load} />}
       {del && <DeleteModal item={del} onClose={() => setDel(null)} onDeleted={() => { setDel(null); load(); }} />}
@@ -206,7 +231,8 @@ export default function Inventory() {
   function ItemModal({ item, onClose, onSaved, canGst }) {
     const [f, setF] = useState(item);
     const [busy, setBusy] = useState(false);
-    const [scanCam, setScanCam] = useState(false);
+    const [showBarcode, setShowBarcode] = useState(false);
+    const [scanCam, setScanCam] = useState(false); // camera open to capture a barcode for this item
     const isNew = !item.id;
     const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
     const save = async () => {
@@ -227,12 +253,23 @@ export default function Inventory() {
             <input className="input" value={f.sku} onChange={set("sku")} disabled={!isNew} placeholder={isNew ? `Auto e.g. ${SKU_PREFIX[f.material_type] || "IT"}-00001` : ""} />
             {isNew && !f.sku && <p className="mt-1 text-xs text-slate-400">Leave blank to auto-generate as <b>{SKU_PREFIX[f.material_type] || "IT"}-…</b></p>}
           </Field>
-          <div className="col-span-2"><Field label="Barcode (scan or type — optional)">
+          <div className="col-span-2"><Field label="Barcode (generate or type — optional)">
             <div className="flex gap-2">
               <input className="input" value={f.barcode || ""} onChange={set("barcode")} placeholder="e.g. 8901234567890" autoComplete="off" />
-              <button type="button" onClick={() => setScanCam(true)} className="btn-ghost shrink-0" title="Scan with camera">
-                <Camera className="h-4 w-4" /> Scan
-              </button>
+              {f.barcode ? (
+                <button type="button" onClick={() => setShowBarcode(true)} className="btn-ghost shrink-0" title="View, download or print the barcode">
+                  <Eye className="h-4 w-4" /> View Barcode
+                </button>
+              ) : (
+                <>
+                  <button type="button" onClick={() => setF((x) => ({ ...x, barcode: genBarcode() }))} className="btn-ghost shrink-0" title="Generate a barcode">
+                    <Barcode className="h-4 w-4" /> Generate
+                  </button>
+                  <button type="button" onClick={() => setScanCam(true)} className="btn-ghost shrink-0" title="Scan a barcode with the camera">
+                    <ScanLine className="h-4 w-4" /> Add Barcode
+                  </button>
+                </>
+              )}
             </div>
           </Field></div>
           <Field label="Material type">
@@ -253,6 +290,7 @@ export default function Inventory() {
           <button className="btn-primary" disabled={busy} onClick={save}>{busy && <Spinner className="h-4 w-4" />} Save</button>
         </div>
         <BarcodeScanner open={scanCam} onClose={() => setScanCam(false)} onDetect={(code) => { setScanCam(false); setF((x) => ({ ...x, barcode: code })); toast.success("Barcode captured"); }} />
+        <BarcodeView open={showBarcode} value={f.barcode} name={f.name} onClose={() => setShowBarcode(false)} />
       </Modal>
     );
   }

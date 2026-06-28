@@ -19,6 +19,10 @@ api.interceptors.response.use(
       localStorage.removeItem("token");
       if (location.pathname !== "/login") location.href = "/login";
     }
+    // Trial ended mid-session → send the owner to billing to choose a plan.
+    if (err.response?.status === 403 && err.response?.data?.error === "trial_expired" && location.pathname !== "/billing") {
+      location.href = "/billing";
+    }
     return Promise.reject(err);
   }
 );

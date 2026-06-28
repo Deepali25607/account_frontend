@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation, Navigate } from "react-router-dom";
 import {
   LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3,
   BookOpenCheck, Factory, Crown, LogOut, Menu, Lock, UsersRound, Warehouse,
-  Palette, Sun, Moon, Wallet, Building2, Smartphone, Download, X,
+  Palette, Sun, Moon, Wallet, Building2, Smartphone, Download, X, Clock, AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useTheme } from "../theme";
@@ -50,7 +50,12 @@ export default function Layout() {
   });
   const dismissAppBanner = () => { try { localStorage.setItem("hideAppBanner", "1"); } catch { /* ignore */ } setAppBanner(false); };
   const nav = useNavigate();
+  const loc = useLocation();
   if (!me) return null;
+
+  // Expired free trial → lock everything but the billing page until a plan is paid.
+  const trial = me.trial || {};
+  if (trial.expired && loc.pathname !== "/billing") return <Navigate to="/billing" replace />;
 
   const SidebarBody = () => (
     <>
@@ -131,7 +136,7 @@ export default function Layout() {
             <div className="text-xs text-slate-400">{me.user.name} · {me.user.role}</div>
           </div>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <span className={`badge capitalize ${TIER_STYLES[me.tenant.tier]}`}>{me.tenant.tier} plan</span>
+            <span className={`badge capitalize ${trial.onTrial ? "bg-amber-100 text-amber-700" : TIER_STYLES[me.tenant.tier]}`}>{trial.onTrial ? "Free trial" : `${me.tenant.tier} plan`}</span>
             <button onClick={toggleMode} className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 active:scale-90" title="Toggle light/dark">
               {dark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
             </button>
@@ -140,6 +145,24 @@ export default function Layout() {
             </button>
           </div>
         </header>
+
+        {trial.onTrial && (
+          trial.expired ? (
+            <div className="flex items-center gap-2.5 border-b border-rose-100 bg-rose-50 px-4 py-2 text-sm sm:px-6">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />
+              <span className="font-medium text-rose-700">Your free trial has ended. Choose a plan to restore access.</span>
+              <button onClick={() => nav("/billing")} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-rose-700 active:scale-95">Choose a plan</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 border-b border-amber-100 bg-amber-50 px-4 py-2 text-sm sm:px-6">
+              <Clock className="h-4 w-4 shrink-0 text-amber-500" />
+              <span className="font-medium text-amber-800">
+                Free trial — {trial.daysLeft} {trial.daysLeft === 1 ? "day" : "days"} left of full access.
+              </span>
+              <button onClick={() => nav("/billing")} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-600 active:scale-95">Choose a plan</button>
+            </div>
+          )
+        )}
 
         {appBanner && (
           <div className="flex items-center gap-2.5 border-b border-brand-100 bg-gradient-to-r from-brand-50 to-white px-4 py-2 text-sm sm:px-6">

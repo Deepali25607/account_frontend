@@ -8,16 +8,10 @@ import { Check, Download } from "lucide-react";
 const isNativeApp = () => typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
 const APK_URL = "/LedgerFlow-1.0.0.apk";
 
-const TIERS = [
-  { id: "basic", name: "Basic", note: "Purchases, Sales, Inventory, Reports" },
-  { id: "standard", name: "Standard", note: "+ Multi-user, Accounting, GST" },
-  { id: "premium", name: "Premium", note: "+ BOM, MRP, Manufacturing" },
-];
-
 export default function Login() {
   const { me, login, register } = useAuth();
   const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ company: "", name: "", email: "", password: "", tier: "basic" });
+  const [form, setForm] = useState({ company: "", name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -98,20 +92,13 @@ export default function Login() {
             <Field label="Password"><input type="password" className="input" value={form.password} onChange={set("password")} placeholder="••••••••" required /></Field>
 
             {mode === "register" && (
-              <div>
-                <span className="label">Choose a plan</span>
-                <div className="grid gap-2">
-                  {TIERS.map((t) => (
-                    <button type="button" key={t.id} onClick={() => setForm({ ...form, tier: t.id })}
-                      className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${form.tier === t.id ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}>
-                      <div>
-                        <div className="font-semibold text-slate-800">{t.name}</div>
-                        <div className="text-xs text-slate-500">{t.note}</div>
-                      </div>
-                      {form.tier === t.id && <Check className="h-5 w-5 text-brand-600" />}
-                    </button>
-                  ))}
+              <div className="rounded-xl border border-brand-100 bg-brand-50/70 px-4 py-3">
+                <div className="flex items-center gap-2 font-semibold text-brand-800">
+                  <Check className="h-4 w-4 text-brand-600" /> 14-day free trial
                 </div>
+                <p className="mt-1 text-xs text-slate-600">
+                  Full access to every feature — Accounting, GST, Multi-user, Warehouses &amp; Manufacturing — free for 14 days. No card required. Choose a plan from <b>Plans &amp; billing</b> when you're ready.
+                </p>
               </div>
             )}
 
