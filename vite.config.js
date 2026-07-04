@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// API requests are proxied to the Express backend during dev.
 export default defineConfig({
+  base: '/account/',
   plugins: [react()],
   server: {
     proxy: {

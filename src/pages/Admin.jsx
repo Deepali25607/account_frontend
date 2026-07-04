@@ -8,6 +8,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import { useTheme } from "../theme";
 import { fmtNum, fmtMoney, Spinner, Empty, apiError, useToast, Modal, Field } from "../ui";
+import { compressImage } from "../imageCompress";
 
 const TIERS = ["basic", "standard", "premium"];
 const TIER_STYLE = {
@@ -325,13 +326,17 @@ function PaymentSettings({ toast }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.get("/platform/payment-settings").then((r) => setF({ upi_id: "", payee_name: "", instructions: "", qr_image: "", ...r.data })).catch(() => setF({ upi_id: "", payee_name: "", instructions: "", qr_image: "" })); }, []);
 
-  const onQr = (e) => {
+  const onQr = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
     if (!file) return;
-    if (file.size > 1.5 * 1024 * 1024) { toast.error("QR image too large (max ~1.5 MB)"); return; }
-    const reader = new FileReader();
-    reader.onload = () => setF((x) => ({ ...x, qr_image: reader.result }));
-    reader.readAsDataURL(file);
+    if (!file.type?.startsWith("image/")) { toast.error("Please choose an image file"); return; }
+    if (file.size > 15 * 1024 * 1024) { toast.error("Image too large (max 15 MB)"); return; }
+    try {
+      // Keep the QR lossless (PNG) so it stays crisp & scannable — just resize.
+      const qr_image = await compressImage(file, { maxDim: 600, mime: "image/png" });
+      setF((x) => ({ ...x, qr_image }));
+    } catch { toast.error("Could not read that image"); }
   };
   const save = async () => {
     setBusy(true);

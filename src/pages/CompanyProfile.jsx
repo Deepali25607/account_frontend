@@ -4,6 +4,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import { Field, Spinner, Modal, useToast, apiError } from "../ui";
 import PageHead from "../components/PageHead";
+import { compressImage } from "../imageCompress";
 
 // Fields the owner can maintain. `name` is required; the rest are optional and
 // print on invoices / receipts (see pdf.js header) and GST documents.
@@ -24,17 +25,18 @@ export default function CompanyProfile() {
 
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
 
-  // Logo upload — read as a base64 data-URL (stored inline, like the platform QR).
-  const onLogo = (e) => {
+  // Logo upload — auto-resize & compress to a small data-URL (stored inline).
+  // Large originals are accepted because compression shrinks them on the client.
+  const onLogo = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file after a remove
     if (!file) return;
     if (!file.type.startsWith("image/")) return toast.error("Please choose an image file");
-    if (file.size > 1024 * 1024) return toast.error("Logo too large (max ~1 MB)");
-    const reader = new FileReader();
-    reader.onload = () => setF((x) => ({ ...x, logo: reader.result }));
-    reader.onerror = () => toast.error("Could not read that image");
-    reader.readAsDataURL(file);
+    if (file.size > 15 * 1024 * 1024) return toast.error("Image too large (max 15 MB)");
+    try {
+      const logo = await compressImage(file, { maxDim: 512, quality: 0.9 });
+      setF((x) => ({ ...x, logo }));
+    } catch { toast.error("Could not read that image"); }
   };
 
   const save = async () => {
