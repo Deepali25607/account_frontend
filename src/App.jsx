@@ -65,10 +65,10 @@ export default function App() {
   return (
     <ThemeProvider>
     <AuthProvider>
-      <ToastProvider>
-        <BrowserRouter>
-          <NativeBackButton />
-          <Routes>
+        <ToastProvider>
+          <BrowserRouter basename="/account">
+            <NativeBackButton />
+            <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/i" element={<PublicInvoice />} />{/* public, no-login shareable invoice */}
             <Route path="/admin" element={<AdminGate><Admin /></AdminGate>} />
