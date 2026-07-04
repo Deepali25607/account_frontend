@@ -17,11 +17,11 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("token");
-      if (location.pathname !== "/login") location.href = "/login";
+      if (location.pathname !== "/login") location.href = "/account/login";
     }
     // Trial ended mid-session → send the owner to billing to choose a plan.
     if (err.response?.status === 403 && err.response?.data?.error === "trial_expired" && location.pathname !== "/billing") {
-      location.href = "/billing";
+      location.href = "/account/billing";
     }
     return Promise.reject(err);
   }
