@@ -9,17 +9,16 @@ users tap it to install (no Play Store needed).
 This build is a **thin shell that loads the live production site** rather than a
 bundled copy of the web assets:
 
-- `capacitor.config.json` sets `server.url = https://account-frontend-lilac.vercel.app`
-- That deployed site already authenticates against the backend on Render
-  (`https://account-backend-liud.onrender.com`)
+- `capacitor.config.json` sets `server.url = https://nexussoftlab.com/account/`
+- That deployed site (AWS: EC2 · nginx · PM2) authenticates against the same-origin
+  backend under `https://nexussoftlab.com/account/api`
 
 **Implications:**
 
 - ✅ The installed app **is** your production app — fully functional out of the box.
-- ✅ **Auto-updates:** every Vercel deploy is reflected instantly in the app, with
+- ✅ **Auto-updates:** every AWS deploy is reflected instantly in the app, with
   **no APK rebuild or redistribution** needed for web/UI changes.
 - ⚠️ The app needs internet to load (no offline shell).
-- ⚠️ First launch may take a few seconds if Render's free tier has cold-started.
 - 🔁 You only rebuild the APK for **native** changes (app icon, splash, version,
   plugins, or switching backend/site URLs).
 
@@ -59,7 +58,7 @@ remote site each launch):
 
 1. Remove the `server.url` and `cleartext` lines from `capacitor.config.json`
    (keep `androidScheme: "https"`).
-2. Ensure [`.env`](.env) has `VITE_API_URL=https://account-backend-liud.onrender.com`
+2. Ensure [`.env.android`](.env.android) has `VITE_API_URL=https://nexussoftlab.com/account`
    (already set) — this is baked into the bundle and is the backend the app calls.
 3. `npm run android:apk`.
 
