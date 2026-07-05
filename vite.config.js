@@ -15,15 +15,22 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => {
   const base = mode === 'android' ? '/' : (process.env.BASE_PATH || '/account/')
   const apiTarget = 'http://localhost:5000'
-  const basedApiPath = `${base.replace(/\/+$/, '')}/api` // e.g. /account/api
+  const basePrefix = base.replace(/\/+$/, '') // "" for root, "/account" otherwise
+  const basedApiPath = `${basePrefix}/api`    // e.g. /account/api
 
   return {
     base,
     plugins: [react()],
     server: {
       proxy: {
-        // Match production: the app calls `${base}api`, proxied to the backend.
-        [basedApiPath]: apiTarget,
+        // The app calls `${base}api/...` (e.g. /account/api/auth/login). Strip the
+        // base prefix before forwarding so it reaches the backend as /api/... —
+        // this mirrors what nginx does in production (proxy_pass .../api/).
+        [basedApiPath]: {
+          target: apiTarget,
+          changeOrigin: true,
+          rewrite: (p) => p.replace(new RegExp(`^${basePrefix}`), ''),
+        },
         // Bare "/api" fallback (root base, or direct calls).
         '/api': apiTarget,
       },
