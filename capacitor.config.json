@@ -4,7 +4,7 @@
   "webDir": "dist",
   "server": {
     "androidScheme": "https",
-    "url": "https://account-frontend-lilac.vercel.app",
+    "url": "https://nexussoftlab.com/account/",
     "cleartext": false
   },
   "plugins": {
