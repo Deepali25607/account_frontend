@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { TrendingUp, TrendingDown, Boxes, AlertTriangle, Package, Users, Truck, Factory } from "lucide-react";
 import api from "../api";
+import { ROUTES } from "../routes";
 import { useAuth } from "../auth";
 import { fmtMoney, fmtNum, SkeletonCard, Skeleton } from "../ui";
 import PageHead from "../components/PageHead";
@@ -96,13 +97,13 @@ export default function Dashboard() {
         <div className="glass p-5 animate-fade-up">
           <h3 className="mb-4 font-bold text-slate-800">Your records</h3>
           <div className="space-y-2">
-            <CountRow icon={Package} label="Items" value={d.counts.items} to="/inventory" />
-            <CountRow icon={Users} label="Customers" value={d.counts.customers} to="/parties" />
-            <CountRow icon={Truck} label="Suppliers" value={d.counts.vendors} to="/parties" />
+            <CountRow icon={Package} label="Items" value={d.counts.items} to={ROUTES.inventory} />
+            <CountRow icon={Users} label="Customers" value={d.counts.customers} to={ROUTES.parties} />
+            <CountRow icon={Truck} label="Suppliers" value={d.counts.vendors} to={ROUTES.parties} />
           </div>
           <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
             Plan: <span className="font-semibold capitalize text-slate-800">{me.tenant.tier}</span>.{" "}
-            <Link to="/billing" className="font-semibold text-brand-600">Manage →</Link>
+            <Link to={ROUTES.billing} className="font-semibold text-brand-600">Manage →</Link>
           </div>
         </div>
       </div>
@@ -129,7 +130,7 @@ function ProductionOrders({ orders }) {
         <h3 className="flex items-center gap-2 font-bold text-slate-800">
           <Factory className="h-[18px] w-[18px] text-slate-400" /> Production orders
         </h3>
-        <Link to="/manufacturing" className="text-sm font-semibold text-brand-600">Open Manufacturing →</Link>
+        <Link to={ROUTES.manufacturing} className="text-sm font-semibold text-brand-600">Open Manufacturing →</Link>
       </div>
       {orders.length === 0 ? (
         <div className="grid h-24 place-items-center text-sm text-slate-400">No production orders yet</div>

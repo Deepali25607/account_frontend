@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth";
+import { ROUTES } from "../routes";
+import { asset } from "../config";
 import { Field, apiError, Spinner } from "../ui";
 import { Check, Download } from "lucide-react";
 
 // Hide the "download the app" link when we're already running inside the app.
 const isNativeApp = () => typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
-const APK_URL = "/LedgerFlow-1.0.0.apk";
+const APK_URL = asset("LedgerFlow-1.0.0.apk");
 
 export default function Login() {
   const { me, login, register } = useAuth();
@@ -15,7 +17,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  if (me) return <Navigate to="/" replace />;
+  if (me) return <Navigate to={ROUTES.home} replace />;
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   const submit = async (e) => {

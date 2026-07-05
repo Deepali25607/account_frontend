@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Lock, ArrowRight } from "lucide-react";
+import { ROUTES } from "../routes";
 
 const INFO = {
   multi_user: {
@@ -48,7 +49,7 @@ export default function Locked({ feature, title }) {
         </ul>
       )}
 
-      <Link to="/billing" className="btn-primary mt-7 inline-flex">Upgrade your plan <ArrowRight className="h-4 w-4" /></Link>
+      <Link to={ROUTES.billing} className="btn-primary mt-7 inline-flex">Upgrade your plan <ArrowRight className="h-4 w-4" /></Link>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import api from "./api";
+import api, { AUTH_EXPIRED_EVENT } from "./api";
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -22,6 +22,15 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // A 401 from any request clears the token and fires AUTH_EXPIRED_EVENT — we
+  // drop the in-memory session so the route guards send the user to /login via
+  // React Router (no page reload, no lost state).
+  useEffect(() => {
+    const onExpired = () => setMe(null);
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
+
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     localStorage.setItem("token", data.token);
@@ -34,7 +43,9 @@ export function AuthProvider({ children }) {
     setMe(data);
   };
 
-  const logout = () => { localStorage.removeItem("token"); setMe(null); location.href = "/login"; };
+  // Clear state only — the route guards render <Navigate to={login}> in
+  // response, keeping everything inside React Router (base-path safe).
+  const logout = () => { localStorage.removeItem("token"); setMe(null); };
 
   // convenience: feature flags for the current tier
   const can = (feature) => !!me?.features?.[feature];

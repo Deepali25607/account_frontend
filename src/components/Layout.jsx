@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useTheme } from "../theme";
+import { ROUTES } from "../routes";
+import { asset } from "../config";
 
 const TIER_STYLES = {
   basic: "bg-emerald-100 text-emerald-700",
@@ -16,27 +18,27 @@ const TIER_STYLES = {
 
 // Primary actions shown in the mobile bottom tab bar (all basic-tier → always available).
 const BOTTOM_NAV = [
-  { to: "/", label: "Home", icon: LayoutDashboard, end: true },
-  { to: "/sales", label: "Sales", icon: Receipt },
-  { to: "/purchases", label: "Purchases", icon: ShoppingCart },
-  { to: "/inventory", label: "Stock", icon: Package },
+  { to: ROUTES.home, label: "Home", icon: LayoutDashboard, end: true },
+  { to: ROUTES.sales, label: "Sales", icon: Receipt },
+  { to: ROUTES.purchases, label: "Purchases", icon: ShoppingCart },
+  { to: ROUTES.inventory, label: "Stock", icon: Package },
 ];
 
 // nav item → required feature (null = always visible)
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, feature: null, end: true },
-  { to: "/inventory", label: "Inventory", icon: Package, feature: "inventory" },
-  { to: "/warehouses", label: "Warehouses", icon: Warehouse, feature: "multi_location" },
-  { to: "/purchases", label: "Purchases", icon: ShoppingCart, feature: "purchases" },
-  { to: "/sales", label: "Sales", icon: Receipt, feature: "sales" },
-  { to: "/parties", label: "Suppliers & Customers", icon: Users, feature: "purchases" },
-  { to: "/payments", label: "Payments", icon: Wallet, feature: null },
-  { to: "/reports", label: "Reports", icon: BarChart3, feature: "reports" },
-  { to: "/accounting", label: "Accounting & GST", icon: BookOpenCheck, feature: "accounting" },
-  { to: "/manufacturing", label: "Manufacturing", icon: Factory, feature: "manufacturing" },
-  { to: "/team", label: "Team & Access", icon: UsersRound, feature: "multi_user" },
-  { to: "/company", label: "Company profile", icon: Building2, feature: null, ownerOnly: true },
-  { to: "/appearance", label: "Appearance", icon: Palette, feature: null },
+  { to: ROUTES.home, label: "Dashboard", icon: LayoutDashboard, feature: null, end: true },
+  { to: ROUTES.inventory, label: "Inventory", icon: Package, feature: "inventory" },
+  { to: ROUTES.warehouses, label: "Warehouses", icon: Warehouse, feature: "multi_location" },
+  { to: ROUTES.purchases, label: "Purchases", icon: ShoppingCart, feature: "purchases" },
+  { to: ROUTES.sales, label: "Sales", icon: Receipt, feature: "sales" },
+  { to: ROUTES.parties, label: "Suppliers & Customers", icon: Users, feature: "purchases" },
+  { to: ROUTES.payments, label: "Payments", icon: Wallet, feature: null },
+  { to: ROUTES.reports, label: "Reports", icon: BarChart3, feature: "reports" },
+  { to: ROUTES.accounting, label: "Accounting & GST", icon: BookOpenCheck, feature: "accounting" },
+  { to: ROUTES.manufacturing, label: "Manufacturing", icon: Factory, feature: "manufacturing" },
+  { to: ROUTES.team, label: "Team & Access", icon: UsersRound, feature: "multi_user" },
+  { to: ROUTES.company, label: "Company profile", icon: Building2, feature: null, ownerOnly: true },
+  { to: ROUTES.appearance, label: "Appearance", icon: Palette, feature: null },
 ];
 
 export default function Layout() {
@@ -55,7 +57,7 @@ export default function Layout() {
 
   // Expired free trial → lock everything but the billing page until a plan is paid.
   const trial = me.trial || {};
-  if (trial.expired && loc.pathname !== "/billing") return <Navigate to="/billing" replace />;
+  if (trial.expired && loc.pathname !== ROUTES.billing) return <Navigate to={ROUTES.billing} replace />;
 
   const SidebarBody = () => (
     <>
@@ -74,7 +76,7 @@ export default function Layout() {
           return (
             <NavLink
               key={n.to}
-              to={locked ? "/billing" : n.to}
+              to={locked ? ROUTES.billing : n.to}
               end={n.end}
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
@@ -99,7 +101,7 @@ export default function Layout() {
       </nav>
 
       <div className="p-3">
-        <button onClick={() => { nav("/billing"); setOpen(false); }} className="group flex w-full items-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 px-4 py-3 text-left text-white shadow-glow-sm transition-all duration-200 hover:shadow-glow active:scale-[.98]">
+        <button onClick={() => { nav(ROUTES.billing); setOpen(false); }} className="group flex w-full items-center gap-2 overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 px-4 py-3 text-left text-white shadow-glow-sm transition-all duration-200 hover:shadow-glow active:scale-[.98]">
           <Crown className="h-5 w-5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
           <div className="flex-1">
             <div className="text-sm font-bold">Manage plan</div>
@@ -151,7 +153,7 @@ export default function Layout() {
             <div className="flex items-center gap-2.5 border-b border-rose-100 bg-rose-50 px-4 py-2 text-sm sm:px-6">
               <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />
               <span className="font-medium text-rose-700">Your free trial has ended. Choose a plan to restore access.</span>
-              <button onClick={() => nav("/billing")} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-rose-700 active:scale-95">Choose a plan</button>
+              <button onClick={() => nav(ROUTES.billing)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-rose-700 active:scale-95">Choose a plan</button>
             </div>
           ) : (
             <div className="flex items-center gap-2.5 border-b border-amber-100 bg-amber-50 px-4 py-2 text-sm sm:px-6">
@@ -159,7 +161,7 @@ export default function Layout() {
               <span className="font-medium text-amber-800">
                 Free trial — {trial.daysLeft} {trial.daysLeft === 1 ? "day" : "days"} left of full access.
               </span>
-              <button onClick={() => nav("/billing")} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-600 active:scale-95">Choose a plan</button>
+              <button onClick={() => nav(ROUTES.billing)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-600 active:scale-95">Choose a plan</button>
             </div>
           )
         )}
@@ -168,7 +170,7 @@ export default function Layout() {
           <div className="flex items-center gap-2.5 border-b border-brand-100 bg-gradient-to-r from-brand-50 to-white px-4 py-2 text-sm sm:px-6">
             <Smartphone className="h-4 w-4 shrink-0 text-brand-600" />
             <span className="font-medium text-slate-700">Get the LedgerFlow Android app</span>
-            <a href="/LedgerFlow-1.0.0.apk" download
+            <a href={asset("LedgerFlow-1.0.0.apk")} download
               className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95">
               <Download className="h-3.5 w-3.5" /> Download
             </a>

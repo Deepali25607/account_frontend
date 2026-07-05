@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Sparkles, Coins, Trophy, CalendarClock, TrendingUp, TrendingDown, CheckCircle2 } from "lucide-react";
 import api from "../api";
+import { ROUTES } from "../routes";
 import { fmtMoney, fmtNum, Spinner } from "../ui";
 
 /** One assistant line: a coloured icon, a sentence (with <b> highlights), and an
@@ -44,7 +45,7 @@ export default function BusinessAssistant({ cur }) {
 
     if (receivables) {
       insights.push(
-        <Insight key="recv" icon={Coins} tone="amber" to="/reports">
+        <Insight key="recv" icon={Coins} tone="amber" to={ROUTES.reports}>
           You have <b className="font-bold text-slate-900">{fmtMoney(receivables.total, cur)}</b> pending from{" "}
           <b className="font-bold text-slate-900">{fmtNum(receivables.customers)}</b> customer{receivables.customers === 1 ? "" : "s"}.
         </Insight>
@@ -53,7 +54,7 @@ export default function BusinessAssistant({ cur }) {
 
     if (topProduct) {
       insights.push(
-        <Insight key="top" icon={Trophy} tone="emerald" to="/inventory">
+        <Insight key="top" icon={Trophy} tone="emerald" to={ROUTES.inventory}>
           Your best-selling product this month is <b className="font-bold text-slate-900">{topProduct.name}</b>{" "}
           <span className="text-slate-400">({fmtNum(topProduct.qty)} sold)</span>.
         </Insight>
@@ -63,7 +64,7 @@ export default function BusinessAssistant({ cur }) {
     if (gst) {
       const when = gst.daysLeft <= 0 ? "due today" : gst.daysLeft === 1 ? "due tomorrow" : `due in ${gst.daysLeft} days`;
       insights.push(
-        <Insight key="gst" icon={CalendarClock} tone={gst.daysLeft <= 5 ? "rose" : "brand"} to="/accounting">
+        <Insight key="gst" icon={CalendarClock} tone={gst.daysLeft <= 5 ? "rose" : "brand"} to={ROUTES.accounting}>
           {gst.ret} filing is <b className="font-bold text-slate-900">{when}</b> <span className="text-slate-400">(by {gst.dueDate})</span>.
         </Insight>
       );
@@ -72,7 +73,7 @@ export default function BusinessAssistant({ cur }) {
     if (profit) {
       const up = profit.direction === "up";
       insights.push(
-        <Insight key="profit" icon={up ? TrendingUp : TrendingDown} tone={up ? "emerald" : "rose"} to="/reports">
+        <Insight key="profit" icon={up ? TrendingUp : TrendingDown} tone={up ? "emerald" : "rose"} to={ROUTES.reports}>
           {profit.changePct === null ? (
             <>Your profit this month is <b className="font-bold text-slate-900">{fmtMoney(profit.thisMonth, cur)}</b>.</>
           ) : (

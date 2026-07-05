@@ -1,10 +1,10 @@
 import axios from "axios";
+import { API_BASE_URL } from "./config";
 
-// Same-origin "/api" works for both Vite dev (proxied) and Capacitor builds
-// when VITE_API_URL points at the deployed backend.
-const baseURL = (import.meta.env.VITE_API_URL || "") + "/api";
-
-const api = axios.create({ baseURL });
+// baseURL is derived from the deployment base path (see config.js), so the same
+// build works under "/", "/account/", etc. and always hits the same-origin API
+// that nginx proxies to the backend.
+const api = axios.create({ baseURL: API_BASE_URL });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
@@ -12,16 +12,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// A dropped/expired session is surfaced as an EVENT, never a hard redirect.
+// A `location.href` here would full-reload the SPA and wipe the in-memory auth
+// state (the cause of the login → bounce-to-login loop). Instead AuthProvider
+// listens for this event and the route guards navigate via React Router.
+export const AUTH_EXPIRED_EVENT = "auth:expired";
+
 api.interceptors.response.use(
   (r) => r,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("token");
-      if (location.pathname !== "/login") location.href = "/account/login";
-    }
-    // Trial ended mid-session → send the owner to billing to choose a plan.
-    if (err.response?.status === 403 && err.response?.data?.error === "trial_expired" && location.pathname !== "/billing") {
-      location.href = "/account/billing";
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     }
     return Promise.reject(err);
   }
