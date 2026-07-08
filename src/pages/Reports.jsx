@@ -13,12 +13,14 @@ const REPORTS = [
   { id: "stock-movement", label: "Stock Movement" },
   { id: "supplier-by-item", label: "Supplier Report By Item" },
   { id: "profit-estimate", label: "Profit Estimate" },
+  { id: "bill-profit", label: "Bill Wise Profit" },
   { id: "outstanding", label: "Receivables / Payables" },
   { id: "supplier-outstanding", label: "Supplier Wise Outstanding" },
+  { id: "customer-outstanding", label: "Customer Wise Outstanding" },
 ];
 
 // Reports that are a point-in-time snapshot (no date range applies).
-const SNAPSHOT = new Set(["stock-summary", "outstanding", "supplier-outstanding"]);
+const SNAPSHOT = new Set(["stock-summary", "outstanding", "supplier-outstanding", "customer-outstanding"]);
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const monthsAgo = (n) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10); };
@@ -154,7 +156,7 @@ function Outstanding({ data, cur }) {
   );
 }
 
-const MONEY_COLS = new Set(["subtotal", "tax_total", "grand_total", "paid", "received", "valuation", "cost_price", "avg_price", "value", "total_billed", "outstanding"]);
+const MONEY_COLS = new Set(["subtotal", "tax_total", "grand_total", "paid", "received", "valuation", "cost_price", "avg_price", "value", "total_billed", "outstanding", "0-30", "31-60", "61-90", "90+", "sales_value", "cost_value", "gross_profit"]);
 
 function Table({ rows, cols, total, cur, sort, onSort, filters, onFilter }) {
   if (!cols.length) return <Empty title="No data for this period" />;

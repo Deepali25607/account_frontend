@@ -7,19 +7,34 @@ import { Search, X } from "lucide-react";
    user types — far more usable than a native <select> once there are dozens or
    hundreds of items. Falls back to showing the selected item's label when idle.
 
+   The dropdown also offers a category filter. Item.category is a free-text
+   column (no categories table), so options are the distinct values present in
+   the loaded item list; "Uncategorized" covers items with a blank category.
+
    Props:
      items   — array of item masters ({ id, name, sku, stock_qty, … })
      value   — currently selected item_id (string|number)
      onPick  — (itemId) => void; called with the chosen id, or "" when cleared
      className — extra classes for the input */
+const NO_CATEGORY = "__none__";
+
 export default function ItemPicker({ items, value, onPick, className = "" }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
   const [active, setActive] = useState(0);
   const boxRef = useRef(null);
   const listRef = useRef(null);
 
   const selected = items.find((it) => String(it.id) === String(value)) || null;
+
+  // Category is a free-text column on the item master (no categories table),
+  // so the filter options are the distinct values present in the loaded list.
+  const categories = useMemo(() => {
+    const set = new Set(items.map((it) => (it.category || "").trim()).filter(Boolean));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [items]);
+  const hasUncategorized = useMemo(() => items.some((it) => !(it.category || "").trim()), [items]);
 
   // Close the dropdown when clicking outside the component.
   useEffect(() => {
@@ -29,14 +44,16 @@ export default function ItemPicker({ items, value, onPick, className = "" }) {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  // Match by name or SKU; cap the list so a huge catalogue stays snappy.
+  // Match by name or SKU within the chosen category; cap the list so a huge
+  // catalogue stays snappy.
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = !q
-      ? items
-      : items.filter((it) => it.name.toLowerCase().includes(q) || String(it.sku || "").toLowerCase().includes(q));
+    let list = items;
+    if (category === NO_CATEGORY) list = list.filter((it) => !(it.category || "").trim());
+    else if (category) list = list.filter((it) => (it.category || "").trim() === category);
+    if (q) list = list.filter((it) => it.name.toLowerCase().includes(q) || String(it.sku || "").toLowerCase().includes(q));
     return list.slice(0, 50);
-  }, [items, query]);
+  }, [items, query, category]);
 
   // Keep the highlighted row scrolled into view as the user arrows through.
   useEffect(() => {
@@ -83,9 +100,30 @@ export default function ItemPicker({ items, value, onPick, className = "" }) {
         )}
       </div>
       {open && (
-        <div ref={listRef} className="absolute z-30 mt-1 max-h-64 w-full min-w-[240px] overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+        <div className="absolute z-30 mt-1 w-full min-w-[240px] rounded-lg border border-slate-200 bg-white shadow-lg">
+          {categories.length > 0 && (
+            <div className="border-b border-slate-100 p-2">
+              <select
+                className="input w-full text-sm"
+                value={category}
+                onChange={(e) => { setCategory(e.target.value); setActive(0); }}
+                title="Filter items by category"
+              >
+                <option value="">All categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+                {hasUncategorized && <option value={NO_CATEGORY}>Uncategorized</option>}
+              </select>
+            </div>
+          )}
+          <div ref={listRef} className="max-h-64 overflow-auto py-1">
           {matches.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-slate-400">No items match “{query.trim()}”</div>
+            <div className="px-3 py-2 text-sm text-slate-400">
+              {query.trim()
+                ? <>No items match “{query.trim()}”{category ? ` in ${category === NO_CATEGORY ? "Uncategorized" : category}` : ""}</>
+                : <>No items in {category === NO_CATEGORY ? "Uncategorized" : category}</>}
+            </div>
           ) : (
             matches.map((it, idx) => (
               <button
@@ -100,6 +138,7 @@ export default function ItemPicker({ items, value, onPick, className = "" }) {
               </button>
             ))
           )}
+          </div>
         </div>
       )}
     </div>
