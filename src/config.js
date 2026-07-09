@@ -18,7 +18,7 @@ const explicitApi = import.meta.env.VITE_API_URL?.replace(/\/+$/, "");
 export const API_BASE_URL = explicitApi ? `${explicitApi}/api` : `${BASENAME}/api`;
 
 // Resolve a static file in the public/ folder against the deployment base path,
-// e.g. asset("LedgerFlow-1.0.0.apk") → "/account/LedgerFlow-1.0.0.apk". Use this
+// e.g. asset("LedgerFlow-1.1.0.apk") → "/account/LedgerFlow-1.1.0.apk". Use this
 // for plain <a href>/<img src> to files that Vite copies verbatim from public/
 // (React Router links don't need it — they prepend the basename themselves).
 export const asset = (path) => rawBase + String(path).replace(/^\/+/, "");

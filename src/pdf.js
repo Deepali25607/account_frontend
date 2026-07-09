@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { isNativeApp, isMobileBrowser, outputFile } from "./files";
 
 const BRAND = [37, 71, 233]; // brand-600
 
@@ -74,8 +75,9 @@ function header(doc, title, company, subtitle) {
   return titleY;
 }
 
-/** Export an array of objects as a titled PDF table. */
-export function exportTablePdf({ title, company, subtitle, columns, rows, fileName }) {
+/** Export an array of objects as a titled PDF table. `shareText` (optional)
+ *  becomes the message alongside the file when a native share sheet is used. */
+export function exportTablePdf({ title, company, subtitle, columns, rows, fileName, shareText }) {
   const doc = new jsPDF();
   const titleY = header(doc, title, company, subtitle);
   autoTable(doc, {
@@ -90,7 +92,7 @@ export function exportTablePdf({ title, company, subtitle, columns, rows, fileNa
   const y = doc.lastAutoTable.finalY || 50;
   doc.setFontSize(8); doc.setTextColor(150);
   doc.text(`Generated ${new Date().toLocaleString()}`, 14, y + 8);
-  doc.save(fileName || `${title.replace(/\s+/g, "-").toLowerCase()}.pdf`);
+  return savePdf(doc, fileName || `${title.replace(/\s+/g, "-").toLowerCase()}.pdf`, shareText);
 }
 
 /**
@@ -145,7 +147,7 @@ export function exportInvoicePdf({ company, currency, doc, customer, party, kind
   const due = Number(doc.grand_total || 0) - paidAmt;
   row(due > 0 ? "Balance due" : "Balance", money(due), true);
 
-  pdf.save(`${doc.doc_no}.pdf`);
+  savePdf(pdf, `${doc.doc_no}.pdf`);
 }
 
 /** Standard thermal roll widths, labelled by their nominal inch size. */
@@ -155,8 +157,28 @@ export const THERMAL_SIZES = [
   { label: '4"', mm: 104 },
 ];
 
-/** Open the OS/browser print dialog for a generated jsPDF doc (instead of downloading). */
-function printPdf(pdf) {
+// ---------------------------------------------------------------------------
+// PDF output routing (see files.js for the platform rules). In the Android/iOS
+// app neither window.print() nor blob downloads work in the WebView, so both
+// "print" and "download PDF" route through the native share sheet — from there
+// the user reaches every printing path Android has (system Print service,
+// thermal-printer vendor apps, Bluetooth print services like RawBT) as well as
+// WhatsApp/Drive/email. Desktop keeps the hidden-iframe print dialog.
+// ---------------------------------------------------------------------------
+
+/** Save/export a finished PDF the way the current platform supports.
+ *  `text` (optional) becomes the share message when a share sheet is used. */
+export function savePdf(pdf, fileName, text) {
+  return outputFile({ blob: pdf.output("blob"), fileName, mimeType: "application/pdf", text });
+}
+
+/** Print a finished PDF the way the current platform supports. */
+async function printPdf(pdf, fileName) {
+  if (isNativeApp() || isMobileBrowser()) {
+    // Share sheet (or download fallback) — printing happens in the print-service app.
+    return outputFile({ blob: pdf.output("blob"), fileName, mimeType: "application/pdf" });
+  }
+  // Desktop: hidden iframe → OS print dialog (instead of downloading).
   const url = URL.createObjectURL(pdf.output("blob"));
   const prev = document.getElementById("__receipt_print_frame");
   if (prev) prev.remove();
@@ -267,5 +289,5 @@ export function exportThermalReceipt({ company, currency, doc: txn, party, kind 
   // right-aligned totals off the page. Pick the orientation that preserves width=W.
   const pdf = new jsPDF({ unit: "mm", format: [W, height], orientation: height >= W ? "portrait" : "landscape" });
   draw(pdf);
-  printPdf(pdf);
+  printPdf(pdf, `${txn.doc_no || "receipt"}-${W}mm.pdf`);
 }

@@ -5,15 +5,19 @@
 // it client-side and renders a read-only invoice with a Download PDF button — the
 // data never reaches a server. We keep the payload keys short to keep URLs small.
 
+import { BASENAME } from "./config";
+
 /**
  * Public base URL used to build customer-facing links.
- * On the web this is just the current origin. In the Capacitor Android app the
- * origin is `https://localhost`, which a customer can't open — so that build must
- * set VITE_PUBLIC_WEB_URL to the deployed web app's URL.
+ * On the web this is the current origin plus the deployment base path (the app
+ * lives under e.g. `/account`, so origin alone would land on the company site).
+ * In the Capacitor Android app the origin is `https://localhost`, which a
+ * customer can't open — so that build must set VITE_PUBLIC_WEB_URL to the
+ * deployed web app's URL (including its base path).
  */
 export function publicBaseUrl() {
   const configured = import.meta.env.VITE_PUBLIC_WEB_URL;
-  return (configured || window.location.origin).replace(/\/+$/, "");
+  return (configured || window.location.origin + BASENAME).replace(/\/+$/, "");
 }
 
 /**
