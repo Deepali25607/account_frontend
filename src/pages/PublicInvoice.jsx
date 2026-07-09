@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { FileText, Download, AlertTriangle } from "lucide-react";
+import { FileText, Download, Printer, AlertTriangle } from "lucide-react";
 import { fmtMoney } from "../ui";
 import { exportInvoicePdf } from "../pdf";
 import { readInvoiceFromHash } from "../share";
@@ -32,6 +32,7 @@ export default function PublicInvoice() {
   const due = Number(doc.grand_total || 0) - received;
   const acct = (doc.payment_account || "cash").replace(/^./, (c) => c.toUpperCase());
   const download = () => exportInvoicePdf({ company, currency: cur, doc, customer });
+  const print = () => exportInvoicePdf({ company, currency: cur, doc, customer, mode: "print" });
 
   return (
     <div className="min-h-screen bg-slate-100 py-6 px-4">
@@ -100,9 +101,14 @@ export default function PublicInvoice() {
               <div className="flex justify-between font-semibold text-slate-800"><span>{due > 0 ? "Balance due" : "Balance"}</span><span>{fmtMoney(due, cur)}</span></div>
             </div>
 
-            <button onClick={download} className="btn-primary mt-6 w-full justify-center">
-              <Download className="h-4 w-4" /> Download PDF
-            </button>
+            <div className="mt-6 flex gap-2">
+              <button onClick={print} className="btn-ghost flex-1 justify-center">
+                <Printer className="h-4 w-4" /> Print
+              </button>
+              <button onClick={download} className="btn-primary flex-1 justify-center">
+                <Download className="h-4 w-4" /> Download PDF
+              </button>
+            </div>
           </div>
         </div>
 

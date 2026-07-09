@@ -78,6 +78,10 @@ function ReceiptMenu({ onPick }) {
                 {s.label} <span className="text-slate-400">({s.mm} mm)</span>
               </button>
             ))}
+            <button className="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+              onClick={() => { setPos(null); onPick("a4"); }}>
+              A4 <span className="text-slate-400">(invoice)</span>
+            </button>
           </div>
         </>
       )}
@@ -245,14 +249,20 @@ export default function TxnModule({ cfg }) {
     kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
   });
 
-  // Same, straight from a table row — fetch the full document (list rows omit line items) first.
-  const printRowReceipt = async (d, widthMm) => {
+  // Same, straight from a table row — fetch the full document (list rows omit
+  // line items) first. `size` is a thermal roll width in mm, or "a4" to print
+  // the full A4 invoice.
+  const printRowReceipt = async (d, size) => {
     try {
       const { data } = await api.get(`/${cfg.endpoint}/${d.id}`);
-      exportThermalReceipt({
-        company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey],
-        kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
-      });
+      if (size === "a4") {
+        exportInvoicePdf({ company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey], kind: cfg.kind, paymentKey: cfg.paymentKey, mode: "print" });
+      } else {
+        exportThermalReceipt({
+          company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey],
+          kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: size,
+        });
+      }
     } catch (e) { toast.error(apiError(e)); }
   };
 
@@ -376,6 +386,9 @@ export default function TxnModule({ cfg }) {
           {/* Print / download — A4 PDF and thermal receipt, for both sales and purchases */}
           <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
             <span className="label !mb-0 flex items-center gap-1.5"><FileText className="h-4 w-4 text-slate-400" /> Invoice</span>
+            <button className="btn-ghost btn-sm" onClick={() => exportInvoicePdf({ company: me.tenant, currency: cur, doc: viewing, party: viewing._party, kind: cfg.kind, paymentKey: cfg.paymentKey, mode: "print" })}>
+              <Printer className="h-3.5 w-3.5" /> Print A4
+            </button>
             <button className="btn-ghost btn-sm" onClick={() => exportInvoicePdf({ company: me.tenant, currency: cur, doc: viewing, party: viewing._party, kind: cfg.kind, paymentKey: cfg.paymentKey })}>
               <FileText className="h-3.5 w-3.5" /> A4 PDF
             </button>
@@ -623,7 +636,8 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
 
   // ── Print step (sales): shown after save instead of closing the modal ──
   const printReceipt = (mm) => exportThermalReceipt({ company: companyInfo || company, currency: cur, doc: saved, party: saved._party, kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: mm });
-  const printA4 = () => exportInvoicePdf({ company: companyInfo || company, currency: cur, doc: saved, customer: saved._party });
+  const printA4 = () => exportInvoicePdf({ company: companyInfo || company, currency: cur, doc: saved, customer: saved._party, mode: "print" });
+  const saveA4 = () => exportInvoicePdf({ company: companyInfo || company, currency: cur, doc: saved, customer: saved._party });
   const startAnother = () => {
     setSaved(null); setPartyId(""); setDocType(cfg.kind); setDocDate(todayStr()); setPaid(0); setPayAccount("cash");
     setLines([{ item_id: "", qty: 1, unit_price: 0, tax_rate: 0, discount: 0, discount_type: "amount" }]); setOverride(false); setScan("");
@@ -645,7 +659,8 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
             {THERMAL_SIZES.map((s) => (
               <button key={s.mm} className="btn-ghost btn-sm" onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)`}>{s.label}</button>
             ))}
-            <button className="btn-ghost btn-sm" onClick={printA4}><FileText className="h-3.5 w-3.5" /> A4 PDF</button>
+            <button className="btn-ghost btn-sm" onClick={printA4} title="Print the A4 invoice"><Printer className="h-3.5 w-3.5" /> Print A4</button>
+            <button className="btn-ghost btn-sm" onClick={saveA4} title="Download the A4 invoice PDF"><FileText className="h-3.5 w-3.5" /> A4 PDF</button>
           </div>
         </div>
 

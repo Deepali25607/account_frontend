@@ -76,8 +76,10 @@ function header(doc, title, company, subtitle) {
 }
 
 /** Export an array of objects as a titled PDF table. `shareText` (optional)
- *  becomes the message alongside the file when a native share sheet is used. */
-export function exportTablePdf({ title, company, subtitle, columns, rows, fileName, shareText }) {
+ *  becomes the message alongside the file when a native share sheet is used.
+ *  `mode: "print"` opens the print dialog instead of downloading (on mobile
+ *  both routes go through the share sheet, where printer apps live). */
+export function exportTablePdf({ title, company, subtitle, columns, rows, fileName, shareText, mode = "save" }) {
   const doc = new jsPDF();
   const titleY = header(doc, title, company, subtitle);
   autoTable(doc, {
@@ -92,16 +94,18 @@ export function exportTablePdf({ title, company, subtitle, columns, rows, fileNa
   const y = doc.lastAutoTable.finalY || 50;
   doc.setFontSize(8); doc.setTextColor(150);
   doc.text(`Generated ${new Date().toLocaleString()}`, 14, y + 8);
-  return savePdf(doc, fileName || `${title.replace(/\s+/g, "-").toLowerCase()}.pdf`, shareText);
+  const name = fileName || `${title.replace(/\s+/g, "-").toLowerCase()}.pdf`;
+  return mode === "print" ? printPdf(doc, name) : savePdf(doc, name, shareText);
 }
 
 /**
  * Export a single document as an A4 PDF invoice/bill. Works for both sales
  * (default) and purchases — `kind` switches the title, party label and which
  * payment field is shown. `party` is the supplier/customer name (legacy callers
- * may still pass `customer`).
+ * may still pass `customer`). `mode: "print"` opens the print dialog instead of
+ * downloading (on mobile both routes go through the share sheet).
  */
-export function exportInvoicePdf({ company, currency, doc, customer, party, kind = "sale", paymentKey }) {
+export function exportInvoicePdf({ company, currency, doc, customer, party, kind = "sale", paymentKey, mode = "save" }) {
   const isPurchase = kind === "purchase";
   const partyName = party ?? customer ?? "";
   const payKey = paymentKey || (isPurchase ? "paid" : "received");
@@ -147,7 +151,7 @@ export function exportInvoicePdf({ company, currency, doc, customer, party, kind
   const due = Number(doc.grand_total || 0) - paidAmt;
   row(due > 0 ? "Balance due" : "Balance", money(due), true);
 
-  savePdf(pdf, `${doc.doc_no}.pdf`);
+  return mode === "print" ? printPdf(pdf, `${doc.doc_no}.pdf`) : savePdf(pdf, `${doc.doc_no}.pdf`);
 }
 
 /** Standard thermal roll widths, labelled by their nominal inch size. */

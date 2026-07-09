@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, FileText, FileSpreadsheet, Share2, Users, Truck, X } from "lucide-react";
+import { Download, FileText, FileSpreadsheet, Printer, Share2, Users, Truck, X } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, Spinner, Empty, Modal, useToast, apiError } from "../ui";
@@ -87,7 +87,7 @@ export default function Reports() {
     return outputFile({ blob, fileName: `${active}.xlsx`, mimeType: XLSX_MIME, text: shareText });
   };
 
-  const exportPdf = (shareText) => {
+  const exportPdf = (shareText, mode = "save") => {
     const rows = rowsFor();
     if (!rows?.length) return;
     const cols = exportCols(rows).map((c) => ({ key: c, label: label(c) }));
@@ -95,7 +95,7 @@ export default function Reports() {
       title: reportLabel,
       company: me.tenant.name,
       subtitle: period,
-      columns: cols, rows, fileName: `${active}.pdf`, shareText,
+      columns: cols, rows, fileName: `${active}.pdf`, shareText, mode,
     });
   };
 
@@ -108,6 +108,7 @@ export default function Reports() {
           <button className="btn-ghost" onClick={() => exportCsv()}><Download className="h-4 w-4" /> CSV</button>
           <button className="btn-ghost" onClick={() => exportExcel()}><FileSpreadsheet className="h-4 w-4" /> Excel</button>
           <button className="btn-ghost" onClick={() => exportPdf()}><FileText className="h-4 w-4" /> PDF</button>
+          <button className="btn-ghost" onClick={() => exportPdf(undefined, "print")}><Printer className="h-4 w-4" /> Print</button>
           <button className="btn-primary" onClick={() => setShareOpen(true)}><Share2 className="h-4 w-4" /> Share</button>
         </div>}
       />

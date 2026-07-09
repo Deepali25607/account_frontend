@@ -31,6 +31,9 @@ async function shareFileNative({ blob, fileName, text }) {
   await Share.share({ title: fileName, ...(text ? { text } : {}), files: [uri] });
 }
 
+/** True when the error is just the user closing the share sheet, not a failure. */
+const isShareCancel = (e) => e?.name === "AbortError" || /cancel/i.test(String(e?.message || e));
+
 /** Mobile web: share the file via the Web Share API. False if unsupported. */
 async function shareFileWeb({ blob, fileName, mimeType, text }) {
   try {
@@ -59,10 +62,27 @@ export function downloadFile(blob, fileName) {
  * Returns "shared" or "downloaded"; never throws (a dismissed sheet is fine).
  */
 export async function outputFile({ blob, fileName, mimeType, text }) {
+  // File paths choke on separators/reserved chars a doc number might contain.
+  const safeName = String(fileName).replace(/[^\w.-]+/g, "_");
+  if (isNativeApp()) {
+    // No download fallback here: the WebView ignores blob downloads, so a swallowed
+    // failure looks like a dead button. Tell the user what went wrong instead.
+    // The WebView loads the live site (capacitor server.url), so this JS can be
+    // newer than the installed binary — a missing-plugin error means an old APK.
+    try { await shareFileNative({ blob, fileName: safeName, text }); }
+    catch (e) {
+      if (!isShareCancel(e)) {
+        const outdated = /not implemented|plugin/i.test(String(e?.message || e));
+        window.alert(outdated
+          ? "Sharing needs a newer version of the LedgerFlow app. Please download the latest app from the website (Login page → Download Android app) and install it, then try again."
+          : `Could not open the share dialog: ${e?.message || e}`);
+      }
+    }
+    return "shared";
+  }
   try {
-    if (isNativeApp()) { await shareFileNative({ blob, fileName, text }); return "shared"; }
-    if (isMobileBrowser() && await shareFileWeb({ blob, fileName, mimeType, text })) return "shared";
-  } catch { /* share unavailable or dismissed — fall through to download */ }
-  downloadFile(blob, fileName);
+    if (isMobileBrowser() && await shareFileWeb({ blob, fileName: safeName, mimeType, text })) return "shared";
+  } catch { /* Web Share unavailable — fall through to download */ }
+  downloadFile(blob, safeName);
   return "downloaded";
 }
