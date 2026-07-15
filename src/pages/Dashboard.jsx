@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { TrendingUp, TrendingDown, Boxes, AlertTriangle, Package, Users, Truck, Factory } from "lucide-react";
+import { TrendingUp, TrendingDown, Boxes, AlertTriangle, Package, Users, Truck, Factory, HandCoins, Wallet } from "lucide-react";
 import api from "../api";
 import { ROUTES } from "../routes";
 import { useAuth } from "../auth";
@@ -45,8 +45,8 @@ export default function Dashboard() {
   if (!d) return (
     <>
       <PageHead title={`Welcome back 👋`} subtitle={`Loading your overview…`} />
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
       </div>
       <div className="mt-4"><Skeleton className="h-40 w-full rounded-2xl" /></div>
     </>
@@ -58,10 +58,11 @@ export default function Dashboard() {
     <>
       <PageHead title={`Welcome back 👋`} subtitle={`Here's how ${me.tenant.name} is doing.`} />
 
-      <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-3">
         <Kpi icon={TrendingUp} tone="emerald" label="Sales (30 days)" value={fmtMoney(d.sales30, cur)} />
         <Kpi icon={TrendingDown} tone="brand" label="Purchases (30 days)" value={fmtMoney(d.purch30, cur)} />
-        <Kpi icon={Truck} tone="violet" label="Supplier outstanding" value={fmtMoney(d.payables, cur)} />
+        <Kpi icon={HandCoins} tone="emerald" label="To Collect" value={fmtMoney(d.receivables, cur)} />
+        <Kpi icon={Wallet} tone="violet" label="To Pay" value={fmtMoney(d.payables, cur)} />
         <Kpi icon={Boxes} tone="amber" label="Stock value" value={fmtMoney(d.stockValue, cur)} />
         <Kpi icon={AlertTriangle} tone="rose" label="Low-stock items" value={fmtNum(d.lowStock)} />
       </div>

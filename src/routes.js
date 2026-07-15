@@ -13,6 +13,7 @@ export const ROUTES = {
   sales: "/sales",
   parties: "/parties",
   payments: "/payments",
+  expenses: "/expenses",
   reports: "/reports",
   accounting: "/accounting",
   manufacturing: "/manufacturing",

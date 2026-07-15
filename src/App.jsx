@@ -14,6 +14,7 @@ import Purchases from "./pages/Purchases";
 import Sales from "./pages/Sales";
 import Parties from "./pages/Parties";
 import Payments from "./pages/Payments";
+import Expenses from "./pages/Expenses";
 import Reports from "./pages/Reports";
 import Accounting from "./pages/Accounting";
 import Manufacturing from "./pages/Manufacturing";
@@ -81,6 +82,7 @@ export default function App() {
               <Route path={ROUTES.sales} element={<Feature name="sales" title="Sales"><Sales /></Feature>} />
               <Route path={ROUTES.parties} element={<Parties />} />
               <Route path={ROUTES.payments} element={<Payments />} />
+              <Route path={ROUTES.expenses} element={<Expenses />} />
               <Route path={ROUTES.reports} element={<Feature name="reports" title="Reports"><Reports /></Feature>} />
               <Route path={ROUTES.accounting} element={<Feature name="accounting" title="Accounting & GST"><Accounting /></Feature>} />
               <Route path={ROUTES.manufacturing} element={<Feature name="manufacturing" title="Manufacturing"><Manufacturing /></Feature>} />

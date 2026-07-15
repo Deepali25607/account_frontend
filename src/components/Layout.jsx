@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3,
   BookOpenCheck, Factory, Crown, LogOut, Menu, Lock, UsersRound, Warehouse,
   Palette, Sun, Moon, Wallet, Building2, Smartphone, Download, X, Clock, AlertTriangle,
+  ReceiptText,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useTheme } from "../theme";
@@ -33,6 +34,7 @@ const NAV = [
   { to: ROUTES.sales, label: "Sales", icon: Receipt, feature: "sales" },
   { to: ROUTES.parties, label: "Suppliers & Customers", icon: Users, feature: "purchases" },
   { to: ROUTES.payments, label: "Payments", icon: Wallet, feature: null },
+  { to: ROUTES.expenses, label: "Expenses", icon: ReceiptText, feature: null },
   { to: ROUTES.reports, label: "Reports", icon: BarChart3, feature: "reports" },
   { to: ROUTES.accounting, label: "Accounting & GST", icon: BookOpenCheck, feature: "accounting" },
   { to: ROUTES.manufacturing, label: "Manufacturing", icon: Factory, feature: "manufacturing" },
