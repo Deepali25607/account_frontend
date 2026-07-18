@@ -4,7 +4,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, Modal, Field, LineCol, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
 import { exportInvoicePdf, exportThermalReceipt, THERMAL_SIZES } from "../pdf";
-import { buildInvoiceLink, invoiceMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
+import { buildInvoiceLink, invoiceShareMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
 import PageHead from "./PageHead";
 import BarcodeScanner from "./BarcodeScanner";
 import BarcodeView from "./BarcodeView";
@@ -91,18 +91,39 @@ function ReceiptMenu({ onPick }) {
 
 /**
  * Post-sale "Share via WhatsApp" control. Pre-fills the customer's mobile (editable),
- * then opens a WhatsApp chat with that number carrying an invoice summary and a
- * self-contained link to a public read-only invoice (with a Download PDF button).
+ * then shares the invoice PDF together with a details caption (number, date,
+ * amounts, and a view link when the app runs on a public URL): on the app /
+ * mobile browsers the share sheet opens with the PDF attached, on desktop the
+ * PDF downloads and the customer's chat opens pre-filled with the details.
+ * `tenant` (optional) is the full company profile, used for the PDF header.
  */
-function ShareWhatsApp({ company, currency, doc, customer, phone }) {
+function ShareWhatsApp({ company, currency, doc, customer, phone, tenant }) {
   const [cc, setCc] = useState("91");
   const [num, setNum] = useState(() => String(phone || "").replace(/\D/g, "").replace(/^0+/, ""));
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
   const valid = normalizePhone(num, cc).length >= 10;
-  const send = () => {
-    if (!valid) return;
-    const link = buildInvoiceLink({ company, currency, doc, customer });
-    const text = invoiceMessage({ company, customer, docNo: doc.doc_no, total: fmtMoney(doc.grand_total, currency), link });
-    window.open(waUrl(normalizePhone(num, cc), text), "_blank");
+  const send = async () => {
+    if (!valid || busy) return;
+    setBusy(true); setNote("");
+    try {
+      const paid = Number(doc.received || 0);
+      const balance = Number(doc.grand_total || 0) - paid;
+      const text = invoiceShareMessage({
+        company, customer, docNo: doc.doc_no, date: doc.doc_date,
+        total: fmtMoney(doc.grand_total, currency),
+        paid: paid > 0 ? fmtMoney(paid, currency) : "",
+        balance: balance > 0 ? fmtMoney(balance, currency) : "",
+        link: isPublicShareBase() ? buildInvoiceLink({ company: tenant || company, currency, doc, customer }) : "",
+      });
+      const result = await exportInvoicePdf({ company: tenant || company, currency, doc, party: customer, shareText: text });
+      if (result === "downloaded") {
+        // Desktop: wa.me can't attach files — open the chat pre-filled with the
+        // details so only dropping the just-downloaded PDF into it is manual.
+        window.open(waUrl(normalizePhone(num, cc), text), "_blank");
+        setNote("PDF downloaded — attach it in the WhatsApp chat that just opened.");
+      }
+    } finally { setBusy(false); }
   };
   return (
     <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
@@ -117,11 +138,12 @@ function ShareWhatsApp({ company, currency, doc, customer, phone }) {
           <input className="input" value={num} onChange={(e) => setNum(e.target.value)} placeholder="Mobile number" inputMode="tel"
             onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
         </label>
-        <button className="btn-primary" disabled={!valid} onClick={send}><MessageCircle className="h-4 w-4" /> Send</button>
+        <button className="btn-primary" disabled={!valid || busy} onClick={send}>
+          {busy ? <Spinner className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />} Send
+        </button>
       </div>
-      {isPublicShareBase()
-        ? <p className="mt-2 text-[11px] text-slate-400">Opens WhatsApp with the invoice summary and a link to view / download the PDF.</p>
-        : <p className="mt-2 text-[11px] text-amber-600">⚠ The link points at <b>localhost</b>, so it won't open on the customer's phone. Set <code>VITE_PUBLIC_WEB_URL</code> to your deployed app URL.</p>}
+      {note && <p className="mt-2 text-[11px] font-semibold text-emerald-700">{note}</p>}
+      <p className="mt-2 text-[11px] text-slate-400">Sends the invoice details with the PDF attached{isPublicShareBase() ? ", plus a link to view it online." : "."}</p>
     </div>
   );
 }
@@ -132,7 +154,7 @@ function ShareWhatsApp({ company, currency, doc, customer, phone }) {
  * document before building the shareable link. Positioned with fixed viewport
  * coordinates so it isn't clipped by the table's overflow containers.
  */
-function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toast }) {
+function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toast, tenant }) {
   const btnRef = useRef(null);
   const [pos, setPos] = useState(null); // {top, right} when open, else null
   const [cc, setCc] = useState("91");
@@ -150,9 +172,22 @@ function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toa
     setBusy(true);
     try {
       const doc = await fetchFull();
-      const link = buildInvoiceLink({ company, currency, doc, customer: partyName });
-      const text = invoiceMessage({ company, customer: partyName, docNo: doc.doc_no, total: fmtMoney(doc.grand_total, currency), link });
-      window.open(waUrl(normalizePhone(num, cc), text), "_blank");
+      const paid = Number(doc.received || 0);
+      const balance = Number(doc.grand_total || 0) - paid;
+      const text = invoiceShareMessage({
+        company, customer: partyName, docNo: doc.doc_no, date: doc.doc_date,
+        total: fmtMoney(doc.grand_total, currency),
+        paid: paid > 0 ? fmtMoney(paid, currency) : "",
+        balance: balance > 0 ? fmtMoney(balance, currency) : "",
+        link: isPublicShareBase() ? buildInvoiceLink({ company: tenant || company, currency, doc, customer: partyName }) : "",
+      });
+      const result = await exportInvoicePdf({ company: tenant || company, currency, doc, party: partyName, shareText: text });
+      if (result === "downloaded") {
+        // Desktop: wa.me can't attach files — open the chat pre-filled with the
+        // details so only dropping the just-downloaded PDF into it is manual.
+        window.open(waUrl(normalizePhone(num, cc), text), "_blank");
+        toast.success("PDF downloaded — attach it in the WhatsApp chat that just opened");
+      }
       setPos(null);
     } catch (e) { toast.error(apiError(e)); }
     finally { setBusy(false); }
@@ -172,12 +207,10 @@ function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toa
               <input className="input" value={num} onChange={(e) => setNum(e.target.value)} placeholder="Mobile number" inputMode="tel" autoFocus
                 onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
             </div>
-            <button className="btn-primary mt-2 w-full justify-center" disabled={!valid || busy} onClick={send}>
+            <button className="btn-primary mt-2 w-full justify-center" disabled={!valid || busy} onClick={send} title="Send the invoice details with the PDF attached">
               {busy ? <Spinner className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />} Send
             </button>
-            {!isPublicShareBase() && (
-              <p className="mt-2 text-[11px] text-amber-600">⚠ Link points at <b>localhost</b> — set <code>VITE_PUBLIC_WEB_URL</code> to your deployed URL so it opens on the customer's phone.</p>
-            )}
+            <p className="mt-2 text-[11px] text-slate-400">Sends the invoice details with the PDF attached{isPublicShareBase() ? ", plus a link to view it online." : "."}</p>
           </div>
         </>
       )}
@@ -318,7 +351,7 @@ export default function TxnModule({ cfg }) {
                         <>
                           <button className="btn-ghost btn-sm" onClick={() => downloadInvoice(d)}><FileText className="h-3.5 w-3.5" /> PDF</button>
                           <WhatsAppRowButton
-                            company={me.tenant.name} currency={cur} partyName={d[cfg.partyNameKey]} phone={partyPhones[d.customer_id]}
+                            company={me.tenant.name} tenant={me.tenant} currency={cur} partyName={d[cfg.partyNameKey]} phone={partyPhones[d.customer_id]}
                             fetchFull={async () => (await api.get(`/${cfg.endpoint}/${d.id}`)).data} toast={toast}
                           />
                         </>
@@ -401,7 +434,7 @@ export default function TxnModule({ cfg }) {
           </div>
 
           {cfg.kind === "sale" && (
-            <ShareWhatsApp company={me.tenant.name} currency={cur} doc={viewing} customer={viewing._party} phone={partyPhones[viewing.customer_id]} />
+            <ShareWhatsApp company={me.tenant.name} tenant={me.tenant} currency={cur} doc={viewing} customer={viewing._party} phone={partyPhones[viewing.customer_id]} />
           )}
         </DetailModal>
       )}
@@ -665,7 +698,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         </div>
 
         {cfg.kind === "sale" && (
-          <ShareWhatsApp company={company} currency={cur} doc={saved} customer={saved._party} phone={saved._phone} />
+          <ShareWhatsApp company={company} tenant={companyInfo} currency={cur} doc={saved} customer={saved._party} phone={saved._phone} />
         )}
 
         <div className="mt-5 flex justify-end gap-2">

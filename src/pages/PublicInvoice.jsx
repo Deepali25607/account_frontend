@@ -34,19 +34,27 @@ export default function PublicInvoice() {
   const download = () => exportInvoicePdf({ company, currency: cur, doc, customer });
   const print = () => exportInvoicePdf({ company, currency: cur, doc, customer, mode: "print" });
 
+  // Letterhead lines — newer links carry the full company profile, older ones just a name.
+  const co = typeof company === "object" && company !== null ? company : { name: company };
+  const coLines = [
+    [co.address, [co.city, co.state, co.pincode].filter(Boolean).join(", ")].filter(Boolean).join(", "),
+    [co.phone && `Ph: ${co.phone}`, co.email].filter(Boolean).join("  ·  "),
+    co.gstin && `GSTIN: ${co.gstin}`,
+  ].filter(Boolean);
+
   return (
     <div className="min-h-screen bg-slate-100 py-6 px-4">
       <div className="mx-auto max-w-2xl">
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-          {/* Header */}
+          {/* Header — the business's letterhead, not the software brand */}
           <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50 px-6 py-5">
-            <div>
-              <p className="text-lg font-bold text-brand-700">LedgerFlow</p>
-              {company && <p className="text-sm text-slate-500">{company}</p>}
+            <div className="min-w-0">
+              <p className="text-lg font-bold text-slate-900">{co.name || "Invoice"}</p>
+              {coLines.map((ln) => <p key={ln} className="text-xs text-slate-500">{ln}</p>)}
             </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-slate-800">{isReturn ? "Credit Note" : "Tax Invoice"}</p>
-              <p className="text-sm text-slate-500">{doc.doc_no}</p>
+            <div className="shrink-0 text-right">
+              <p className="text-sm font-bold uppercase tracking-wide text-brand-700">{isReturn ? "Credit Note" : "Tax Invoice"}</p>
+              <p className="text-sm font-semibold text-slate-700">{doc.doc_no}</p>
               <p className="text-xs text-slate-400">{doc.doc_date}</p>
             </div>
           </div>

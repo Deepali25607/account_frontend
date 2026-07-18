@@ -98,6 +98,32 @@ export function exportTablePdf({ title, company, subtitle, columns, rows, fileNa
   return mode === "print" ? printPdf(doc, name) : savePdf(doc, name, shareText);
 }
 
+// ── Amount in words (Indian numbering: crore / lakh / thousand) ─────────────
+const W_ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const W_TENS = ["", "Ten", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+const wTwo = (n) => n < 20 ? W_ONES[n] : `${W_TENS[Math.floor(n / 10)]}${n % 10 ? " " + W_ONES[n % 10] : ""}`;
+const wThree = (n) => [Math.floor(n / 100) ? `${W_ONES[Math.floor(n / 100)]} Hundred` : "", wTwo(n % 100)].filter(Boolean).join(" ");
+function numToWords(n) {
+  if (!n) return "Zero";
+  const parts = [];
+  if (n >= 1e7) { parts.push(`${numToWords(Math.floor(n / 1e7))} Crore`); n %= 1e7; }
+  if (n >= 1e5) { parts.push(`${wTwo(Math.floor(n / 1e5))} Lakh`); n %= 1e5; }
+  if (n >= 1000) { parts.push(`${wTwo(Math.floor(n / 1000))} Thousand`); n %= 1000; }
+  if (n) parts.push(wThree(n));
+  return parts.join(" ");
+}
+
+/** "Rupees One Thousand One Hundred Eighty Only" — INR gets Rupees/Paise words,
+ *  other currencies fall back to the ISO code and a NN/100 fraction. */
+export function amountInWords(n, cur = "INR") {
+  const v = Math.abs(Number(n || 0));
+  let whole = Math.floor(v);
+  let frac = Math.round((v - whole) * 100);
+  if (frac === 100) { whole += 1; frac = 0; }
+  if (cur === "INR") return `Rupees ${numToWords(whole)}${frac ? ` and ${numToWords(frac)} Paise` : ""} Only`;
+  return `${cur || ""} ${numToWords(whole)}${frac ? ` and ${String(frac).padStart(2, "0")}/100` : ""} Only`.trim();
+}
+
 /**
  * Export a single document as an A4 PDF invoice/bill. Works for both sales
  * (default) and purchases — `kind` switches the title, party label and which
@@ -105,53 +131,130 @@ export function exportTablePdf({ title, company, subtitle, columns, rows, fileNa
  * may still pass `customer`). `mode: "print"` opens the print dialog instead of
  * downloading (on mobile both routes go through the share sheet).
  */
-export function exportInvoicePdf({ company, currency, doc, customer, party, kind = "sale", paymentKey, mode = "save" }) {
+export function exportInvoicePdf({ company, currency, doc, customer, party, kind = "sale", paymentKey, mode = "save", shareText }) {
   const isPurchase = kind === "purchase";
   const partyName = party ?? customer ?? "";
   const payKey = paymentKey || (isPurchase ? "paid" : "received");
   const isReturn = doc.doc_type === "return";
-  const title = isReturn ? (isPurchase ? "Debit Note" : "Credit Note") : (isPurchase ? "Purchase Invoice" : "Tax Invoice");
+  const title = isReturn ? (isPurchase ? "DEBIT NOTE" : "CREDIT NOTE") : (isPurchase ? "PURCHASE INVOICE" : "TAX INVOICE");
+  const money = (n) => pdfMoney(n, currency);
+  const L = 14, R = 196; // A4 content edges (210mm − 14mm margins)
+  const SLATE = [100, 116, 139], DARK = [15, 23, 42], LINE = [226, 232, 240];
 
   const pdf = new jsPDF();
-  const titleY = header(pdf, title, company, `${doc.doc_no} · ${doc.doc_date}`);
-  pdf.setFontSize(10); pdf.setTextColor(40);
-  pdf.text(`${isPurchase ? "Supplier" : "Bill to"}: ${partyName}`, 14, titleY + 14);
-  const money = (n) => pdfMoney(n, currency);
+  const co = companyInfo(company);
+
+  // ── Header: company identity left, logo top-right, brand rule under both ──
+  drawLogo(pdf, co.logo);
+  let y = 18;
+  const MAXW = 144; // clears the logo box on the right
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(15); pdf.setTextColor(...DARK);
+  pdf.splitTextToSize(co.name || "Invoice", MAXW).forEach((ln) => { pdf.text(ln, L, y); y += 6.5; });
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(...SLATE);
+  co.lines.forEach((ln) => pdf.splitTextToSize(ln, MAXW).forEach((sub) => { pdf.text(sub, L, y); y += 4; }));
+  y = Math.max(y, 34); // never rule through the logo (its box ends at y≈32)
+  pdf.setDrawColor(...BRAND); pdf.setLineWidth(0.7); pdf.line(L, y, R, y);
+  y += 9;
+
+  // ── Title left · document meta right ──
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(14); pdf.setTextColor(...BRAND);
+  pdf.text(title, L, y);
+  const metaRow = (label, value, yy) => {
+    pdf.setFontSize(9); pdf.setFont("helvetica", "bold"); pdf.setTextColor(...DARK);
+    pdf.text(String(value), R, yy, { align: "right" });
+    const vw = pdf.getTextWidth(String(value));
+    pdf.setFont("helvetica", "normal"); pdf.setTextColor(...SLATE);
+    pdf.text(label, R - vw - 2, yy, { align: "right" });
+  };
+  metaRow(`${isReturn ? "Note" : "Invoice"} No:`, doc.doc_no, y - 4);
+  metaRow("Date:", doc.doc_date, y + 1);
+
+  // ── Party block ──
+  y += 9;
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(7.5); pdf.setTextColor(...SLATE);
+  pdf.text(isPurchase ? "SUPPLIER" : "BILL TO", L, y);
+  y += 5;
+  pdf.setFontSize(11); pdf.setTextColor(...DARK);
+  pdf.text(partyName || "—", L, y);
+
+  // ── Items table ──
   // Only surface the per-line discount column when at least one line carries one.
   const hasDisc = (doc.lines || []).some((l) => Number(l.discount) > 0);
   const discCell = (l) => Number(l.discount) > 0 ? `- ${money(l.discount)}${l.discount_type === "percent" ? ` (${l.discount_value}%)` : ""}` : "—";
+  const head = ["#", "Item", "HSN/SAC", "Qty", "Rate", ...(hasDisc ? ["Disc"] : []), "Tax %", "Amount"];
+  const rightCols = head.map((h, i) => ["Qty", "Rate", "Disc", "Tax %", "Amount"].includes(h) ? i : -1).filter((i) => i >= 0);
   autoTable(pdf, {
-    startY: titleY + 20,
-    head: [["Item", "HSN/SAC", "Qty", "Rate", ...(hasDisc ? ["Disc"] : []), "Tax %", "Amount"]],
-    body: (doc.lines || []).map((l) => [l.item_name, l.hsn || "—", l.qty, money(l.unit_price), ...(hasDisc ? [discCell(l)] : []), `${l.tax_rate}%`, money(l.line_total)]),
-    styles: { fontSize: 9 }, headStyles: { fillColor: BRAND, textColor: 255 }, margin: { left: 14, right: 14 },
+    startY: y + 6,
+    head: [head],
+    body: (doc.lines || []).map((l, i) => [i + 1, l.item_name, l.hsn || "—", l.qty, money(l.unit_price), ...(hasDisc ? [discCell(l)] : []), `${l.tax_rate}%`, money(l.line_total)]),
+    theme: "grid",
+    styles: { fontSize: 9, cellPadding: 2.6, lineColor: LINE, lineWidth: 0.15, textColor: 50 },
+    headStyles: { fillColor: BRAND, textColor: 255, fontStyle: "bold", lineWidth: 0 },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { halign: "center", cellWidth: 9 },
+      ...Object.fromEntries(rightCols.map((i) => [i, { halign: "right" }])),
+    },
+    margin: { left: L, right: 14 },
   });
-  let y = pdf.lastAutoTable.finalY + 8;
-  const RX = 196; // right edge for the totals column (page width 210 − 14 margin)
-  const row = (label, value, bold) => {
-    pdf.setFont(undefined, bold ? "bold" : "normal");
-    pdf.text(label, 140, y);
-    pdf.text(value, RX, y, { align: "right" });
-    y += 6;
-  };
-  pdf.setFontSize(10); pdf.setTextColor(40);
-  row("Subtotal", money(doc.subtotal));
-  row("Tax", money(doc.tax_total));
-  if (Number(doc.discount)) row(doc.discount_type === "percent" ? `Discount (${doc.discount_value}%)` : "Discount", `- ${money(doc.discount)}`);
-  if (Number(doc.extra_charges)) row(doc.extra_charges_note ? `Charges (${doc.extra_charges_note})` : "Additional charges", money(doc.extra_charges));
-  if (Number(doc.round_off)) row("Round off", `${doc.round_off > 0 ? "+ " : "- "}${money(Math.abs(doc.round_off))}`);
-  row("Total amount", money(doc.grand_total), true);
 
+  // ── Totals panel (right) · amount in words (left) ──
+  let ty = pdf.lastAutoTable.finalY + 8;
+  if (ty > 232) { pdf.addPage(); ty = 24; } // keep totals + signature together
+  const wordsTopY = ty;
+  const TX = 126; // totals block left edge
+  const trow = (label, value, { bold = false, fill = false, top = false } = {}) => {
+    if (fill) { pdf.setFillColor(...BRAND); pdf.rect(TX - 3, ty - 4.6, R - TX + 6, 6.8, "F"); }
+    if (top) { pdf.setDrawColor(...LINE); pdf.setLineWidth(0.2); pdf.line(TX - 3, ty - 4.6, R + 3, ty - 4.6); }
+    pdf.setFont("helvetica", bold ? "bold" : "normal");
+    pdf.setFontSize(9.5);
+    pdf.setTextColor(...(fill ? [255, 255, 255] : bold ? DARK : SLATE));
+    pdf.text(label, TX, ty);
+    pdf.setTextColor(...(fill ? [255, 255, 255] : DARK));
+    pdf.text(value, R, ty, { align: "right" });
+    ty += 6.8;
+  };
+  trow("Subtotal", money(doc.subtotal));
+  trow("Tax", money(doc.tax_total));
+  if (Number(doc.discount)) trow(doc.discount_type === "percent" ? `Discount (${doc.discount_value}%)` : "Discount", `- ${money(doc.discount)}`);
+  if (Number(doc.extra_charges)) trow(doc.extra_charges_note ? `Charges (${doc.extra_charges_note})` : "Additional charges", money(doc.extra_charges));
+  if (Number(doc.round_off)) trow("Round off", `${doc.round_off > 0 ? "+ " : "- "}${money(Math.abs(doc.round_off))}`);
+  trow("Total Amount", money(doc.grand_total), { bold: true, fill: true });
   const paidAmt = Number(doc[payKey] || 0);
   if (paidAmt > 0) {
     const acct = (doc.payment_account || "cash").replace(/^./, (c) => c.toUpperCase());
-    const label = isReturn ? "Amount refunded" : (isPurchase ? "Amount paid" : "Amount received");
-    row(`${label} (${acct})`, money(paidAmt));
+    trow(`${isReturn ? "Amount refunded" : isPurchase ? "Amount paid" : "Amount received"} (${acct})`, money(paidAmt));
   }
   const due = Number(doc.grand_total || 0) - paidAmt;
-  row(due > 0 ? "Balance due" : "Balance", money(due), true);
+  trow(due > 0 ? "Balance Due" : "Balance", money(due), { bold: true, top: true });
 
-  return mode === "print" ? printPdf(pdf, `${doc.doc_no}.pdf`) : savePdf(pdf, `${doc.doc_no}.pdf`);
+  // Amount in words — beside the totals, wrapped inside the left column.
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(7.5); pdf.setTextColor(...SLATE);
+  pdf.text("AMOUNT IN WORDS", L, wordsTopY);
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(...DARK);
+  let wy = wordsTopY + 5;
+  pdf.splitTextToSize(amountInWords(doc.grand_total, currency), TX - L - 10).forEach((ln) => { pdf.text(ln, L, wy); wy += 4.5; });
+
+  // ── Signature block ──
+  let sy = Math.max(ty, wy) + 16;
+  if (sy > 268) { pdf.addPage(); sy = 40; }
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(9); pdf.setTextColor(...DARK);
+  if (co.name) pdf.text(`For ${co.name}`, R, sy, { align: "right" });
+  pdf.setDrawColor(120); pdf.setLineWidth(0.2); pdf.line(R - 48, sy + 16, R, sy + 16);
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(...SLATE);
+  pdf.text("Authorised Signatory", R - 24, sy + 20.5, { align: "center" });
+
+  // ── Footer on every page: rule, generation note, page numbers ──
+  const pages = pdf.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    pdf.setPage(p);
+    pdf.setDrawColor(...LINE); pdf.setLineWidth(0.2); pdf.line(L, 284, R, 284);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(7.5); pdf.setTextColor(150);
+    pdf.text(`This is a computer-generated document · Generated by LedgerFlow on ${new Date().toLocaleDateString()}`, L, 289);
+    if (pages > 1) pdf.text(`Page ${p} of ${pages}`, R, 289, { align: "right" });
+  }
+
+  return mode === "print" ? printPdf(pdf, `${doc.doc_no}.pdf`) : savePdf(pdf, `${doc.doc_no}.pdf`, shareText);
 }
 
 /** Standard thermal roll widths, labelled by their nominal inch size. */

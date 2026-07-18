@@ -278,6 +278,11 @@ function ShareReportModal({ open, onClose, reportLabel, period, company, hasData
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(null);
   const [busy, setBusy] = useState(false);
+  // WhatsApp destination — prefilled from the chosen party, but freely editable
+  // so a report can go to any number even without a party on record.
+  const [cc, setCc] = useState("91");
+  const [num, setNum] = useState("");
+  const waValid = normalizePhone(num, cc).length >= 10;
 
   // Load customers + suppliers once, on first open, so the picker is instant.
   useEffect(() => {
@@ -302,8 +307,10 @@ function ShareReportModal({ open, onClose, reportLabel, period, company, hasData
     try {
       const result = await onShare(format, message);
       if (result === "downloaded") {
-        if (sel?.phone) {
-          window.open(waUrl(normalizePhone(sel.phone), message), "_blank");
+        // Desktop: wa.me can't attach files — open the chat pre-addressed so
+        // only attaching the just-downloaded report is manual.
+        if (waValid) {
+          window.open(waUrl(normalizePhone(num, cc), message), "_blank");
           toast.success("Report downloaded — attach it in the WhatsApp chat that just opened");
         } else toast.success("Report downloaded");
       }
@@ -344,7 +351,7 @@ function ShareReportModal({ open, onClose, reportLabel, period, company, hasData
               {matches.length > 0 && (
                 <div className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white">
                   {matches.map((p) => (
-                    <button key={`${p.kind}-${p.id}`} onClick={() => { setSel(p); setQ(""); }}
+                    <button key={`${p.kind}-${p.id}`} onClick={() => { setSel(p); setNum(String(p.phone || "").replace(/\D/g, "").replace(/^0+/, "")); setQ(""); }}
                       className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm last:border-0 hover:bg-slate-50">
                       {p.kind === "Customer" ? <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" /> : <Truck className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
                       <span className="font-medium text-slate-800">{p.name}</span>
@@ -358,6 +365,17 @@ function ShareReportModal({ open, onClose, reportLabel, period, company, hasData
               )}
             </>
           )}
+        </div>
+
+        <div>
+          <span className="label">WhatsApp number (optional)</span>
+          <div className="flex items-center gap-2">
+            <input className="input !w-16" value={cc} onChange={(e) => setCc(e.target.value)} inputMode="numeric" title="Country code" />
+            <input className="input" value={num} onChange={(e) => setNum(e.target.value)} placeholder="Mobile number" inputMode="tel" />
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            On a phone the share sheet opens with the report attached — pick WhatsApp there. On desktop the report downloads and, with a number here, the WhatsApp chat opens ready for the attachment.
+          </p>
         </div>
 
         <div>

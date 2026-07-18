@@ -48,10 +48,16 @@ const fromB64Url = (s) => {
   return new TextDecoder().decode(bytes);
 };
 
-/** Pack a sale into a compact, link-friendly shape. */
+/** Pack a sale into a compact, link-friendly shape. `company` may be the full
+ *  company profile (name/address/GSTIN…) or a plain name string — the profile
+ *  fields travel too (minus the logo, whose data-URL would blow up the link)
+ *  so the public page and its PDF show a complete letterhead. */
 function pack({ company, currency, doc, customer }) {
+  const co = typeof company === "object" && company !== null ? company : { name: company || "" };
+  const profile = { a: co.address || "", ci: co.city || "", st: co.state || "", z: co.pincode || "", ph: co.phone || "", em: co.email || "", g: co.gstin || "" };
   return {
-    c: company || "",
+    c: co.name || "",
+    co: Object.values(profile).some(Boolean) ? profile : undefined,
     u: currency || "INR",
     n: doc.doc_no,
     d: doc.doc_date,
@@ -74,7 +80,9 @@ function pack({ company, currency, doc, customer }) {
 /** Reverse of pack() — returns { company, currency, doc, customer } as the PDF/render code expects. */
 export function unpack(o) {
   return {
-    company: o.c,
+    company: o.co
+      ? { name: o.c, address: o.co.a, city: o.co.ci, state: o.co.st, pincode: o.co.z, phone: o.co.ph, email: o.co.em, gstin: o.co.g }
+      : o.c,
     currency: o.u,
     customer: o.p,
     doc: {
@@ -126,8 +134,24 @@ export function waUrl(phone, text) {
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
 
-/** Default WhatsApp message body for an invoice. */
-export function invoiceMessage({ company, customer, docNo, total, link }) {
+/**
+ * WhatsApp message body for an invoice: the key details (number, date, amounts)
+ * that travel as the caption alongside the attached PDF. `paid`/`balance`/`link`
+ * are optional — pass empty to omit their lines (e.g. no link on localhost).
+ */
+export function invoiceShareMessage({ company, customer, docNo, date, total, paid, balance, link }) {
   const hi = customer ? `Hi ${customer},` : "Hi,";
-  return `${hi}\n\nHere is your invoice ${docNo} for ${total}${company ? ` from ${company}` : ""}.\n\nView / download: ${link}\n\nThank you!`;
+  return [
+    hi,
+    "",
+    `Invoice ${docNo}${date ? ` · ${date}` : ""}${company ? ` from ${company}` : ""}`,
+    `Total: ${total}`,
+    ...(paid ? [`Received: ${paid}`] : []),
+    ...(balance ? [`Balance due: ${balance}`] : []),
+    "",
+    "The invoice PDF is attached.",
+    ...(link ? ["", `View online: ${link}`] : []),
+    "",
+    "Thank you!",
+  ].join("\n");
 }
