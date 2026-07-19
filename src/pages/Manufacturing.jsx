@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Factory, Layers, ClipboardList, Calculator, Sigma, ArrowRight } from "lucide-react";
+import { Plus, Trash2, Pencil, Factory, Layers, ClipboardList, Calculator, Sigma, ArrowRight, PackageSearch, Clock } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, fmtNum, Modal, Field, LineCol, useToast, apiError, Empty, Spinner, DetailModal } from "../ui";
@@ -8,6 +8,7 @@ import PageHead from "../components/PageHead";
 const TABS = [
   { id: "boms", label: "Bills of Materials", icon: Layers },
   { id: "calc", label: "Cost Calculator", icon: Sigma },
+  { id: "planner", label: "Requirement Planner", icon: PackageSearch },
   { id: "orders", label: "Production Orders", icon: ClipboardList },
   { id: "mrp", label: "MRP & Shortages", icon: Calculator },
 ];
@@ -27,6 +28,7 @@ export default function Manufacturing() {
       </div>
       {tab === "boms" && <Boms />}
       {tab === "calc" && <CostCalculator />}
+      {tab === "planner" && <RequirementPlanner />}
       {tab === "orders" && <Orders />}
       {tab === "mrp" && <Mrp />}
     </>
@@ -403,6 +405,141 @@ function CostCalculator() {
       </div>
 
       {creating && <BomModal cur={cur} preset={preset} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); toast.success("Open the Bills of Materials tab to see it"); }} toast={toast} />}
+    </div>
+  );
+}
+
+/* ───────────────────────── Requirement planner ─────────────────────────
+   Sales enquiry → what to produce, what raw material to arrange, and how
+   long it will take. Explosion + stock netting happen on the server using
+   the BOMs; the working-hours-per-day input is a display-only conversion. */
+function RequirementPlanner() {
+  const { me } = useAuth();
+  const cur = me.tenant.currency;
+  const toast = useToast();
+  const [items, setItems] = useState([]);
+  const [rows, setRows] = useState([{ item_id: "", qty: 1 }]);
+  const [hoursPerDay, setHoursPerDay] = useState(8);
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.get("/items").then((r) => setItems(r.data)); }, []);
+
+  const goods = items.filter((it) => ["finished", "semi_finished"].includes(it.material_type));
+  const setRow = (i, patch) => setRows((xs) => xs.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+  const demands = rows.filter((r) => r.item_id && Number(r.qty) > 0).map((r) => ({ item_id: Number(r.item_id), qty: Number(r.qty) }));
+
+  const calc = async () => {
+    setBusy(true);
+    try { setResult((await api.post("/manufacturing/requirements", { demands })).data); }
+    catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
+  };
+
+  const hpd = Number(hoursPerDay) > 0 ? Number(hoursPerDay) : 8;
+  const days = result ? result.total_hours / hpd : 0;
+  const toBuy = result ? result.purchase.filter((p) => p.net > 0) : [];
+  const covered = result ? result.purchase.filter((p) => p.net <= 0) : [];
+
+  return (
+    <div className="space-y-4">
+      <div className="card p-4">
+        <div className="mb-2 label">Sales enquiry — goods & quantities</div>
+        {rows.map((r, i) => (
+          <div key={i} className="mb-2 grid grid-cols-12 items-end gap-2 sm:items-center">
+            <LineCol label="Finished / semi-finished good" className="col-span-12 sm:col-span-8">
+              <select className="input w-full" value={r.item_id} onChange={(e) => setRow(i, { item_id: e.target.value })}>
+                <option value="">Select item…</option>
+                {goods.map((it) => <option key={it.id} value={it.id}>{it.name} · {it.sku}</option>)}
+              </select>
+            </LineCol>
+            <LineCol label="Qty" className="col-span-11 sm:col-span-3">
+              <input type="number" min="0" className="input w-full" value={r.qty} onChange={(e) => setRow(i, { qty: e.target.value })} />
+            </LineCol>
+            <button className="col-span-1 grid h-10 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-500" onClick={() => setRows((xs) => xs.filter((_, idx) => idx !== i))} title="Remove"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="btn-ghost btn-sm" onClick={() => setRows((xs) => [...xs, { item_id: "", qty: 1 }])}><Plus className="h-3.5 w-3.5" /> Add item</button>
+          <button className="btn-primary btn-sm ml-auto" disabled={busy || !demands.length} onClick={calc}>{busy && <Spinner className="h-4 w-4" />} Calculate requirements</button>
+        </div>
+        {goods.length === 0 && <p className="mt-2 text-xs text-amber-600">No Finished/Semi-Finished items yet — set an item's Material Type in Inventory first.</p>}
+      </div>
+
+      {result && (
+        <>
+          <div className="card p-4">
+            <div className="mb-2 flex items-center gap-2 label"><Clock className="h-4 w-4" /> Time to complete</div>
+            {result.total_hours > 0 ? (
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-600">
+                <span>Total labour <b className="text-slate-800">{fmtNum(result.total_hours)} hours</b></span>
+                <span className="flex items-center gap-2">at
+                  <input type="number" min="1" className="input !h-8 w-16 text-center" value={hoursPerDay} onChange={(e) => setHoursPerDay(e.target.value)} />
+                  h/day ≈ <b className="text-brand-700">{fmtNum(Math.round(days * 10) / 10)} working day(s)</b>
+                </span>
+                <span>Labour cost <b className="text-slate-800">{fmtMoney(result.total_labour_cost, cur)}</b></span>
+                {result.total_other_expense_cost > 0 && <span>Other production expenses <b className="text-slate-800">{fmtMoney(result.total_other_expense_cost, cur)}</b></span>}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">{result.produce.some((p) => p.net > 0)
+                ? "No labour hours found on the BOM(s) — add Labour (hourly) expenses to the BOMs to get a time estimate."
+                : "Nothing needs to be produced — demand is covered by stock on hand."}</p>
+            )}
+            <p className="mt-2 text-xs text-slate-400">Assumes one worker per role; hours come from each BOM's labour rows × builds required. Days are a simple hours ÷ hours-per-day conversion.</p>
+          </div>
+
+          <div className="card p-4">
+            <div className="mb-2 label">Production plan (stock netted at every level)</div>
+            {result.produce.length === 0 ? <p className="text-sm text-slate-400">None of the demanded items has a BOM — see the purchase list below.</p> : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead><tr className="bg-slate-50"><th className="th">Item</th><th className="th text-right">In stock</th><th className="th text-right">Required</th><th className="th text-right">To produce</th><th className="th text-right">Builds</th><th className="th text-right">Labour hours</th></tr></thead>
+                  <tbody>
+                    {result.produce.map((p) => (
+                      <tr key={p.item_id} className="border-t border-slate-100">
+                        <td className="td">{p.name} <span className="text-slate-400">({p.sku})</span>
+                          {p.labour.length > 0 && p.net > 0 && (
+                            <div className="text-xs text-slate-400">{p.labour.map((l) => `${l.name}: ${fmtNum(l.hours)} h`).join(" · ")}</div>
+                          )}
+                        </td>
+                        <td className="td text-right">{fmtNum(p.on_hand)}</td>
+                        <td className="td text-right">{fmtNum(p.gross)}</td>
+                        <td className="td text-right font-semibold">{p.net > 0 ? fmtNum(p.net) : <span className="text-emerald-600">in stock</span>}</td>
+                        <td className="td text-right">{p.builds > 0 ? fmtNum(p.builds) : "—"}</td>
+                        <td className="td text-right">{p.labour_hours > 0 ? fmtNum(p.labour_hours) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card p-4">
+            <div className="mb-2 label">Raw material to arrange</div>
+            {toBuy.length === 0 ? <p className="text-sm text-slate-400">All required raw material is available in stock.</p> : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead><tr className="bg-slate-50"><th className="th">Item</th><th className="th text-right">On hand</th><th className="th text-right">Required</th><th className="th text-right">To buy</th><th className="th text-right">Est. cost</th></tr></thead>
+                  <tbody>
+                    {toBuy.map((p) => (
+                      <tr key={p.item_id} className="border-t border-slate-100">
+                        <td className="td">{p.name} <span className="text-slate-400">({p.sku})</span></td>
+                        <td className="td text-right">{fmtNum(p.on_hand)} {p.uom}</td>
+                        <td className="td text-right">{fmtNum(p.gross)} {p.uom}</td>
+                        <td className="td text-right font-semibold text-rose-600">{fmtNum(p.net)} {p.uom}</td>
+                        <td className="td text-right">{fmtMoney(p.est_cost, cur)}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-slate-200 font-semibold"><td className="td" colSpan={4}>Estimated purchase cost</td><td className="td text-right">{fmtMoney(result.purchase_cost, cur)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {covered.length > 0 && (
+              <p className="mt-2 text-xs text-slate-400">Covered by stock: {covered.map((p) => `${p.name} (${fmtNum(p.gross)} ${p.uom})`).join(", ")}.</p>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
