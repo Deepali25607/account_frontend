@@ -25,7 +25,7 @@ const MATERIAL_STYLE = {
   consumable: "bg-slate-100 text-slate-600", service: "bg-violet-100 text-violet-700",
 };
 
-const blank = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
+const blank = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", alt_uom: "", alt_uom_factor: "", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
 const PAGE_SIZE = 20;
 
 // Generate a valid EAN-13 barcode for in-house items. Prefix "2" is reserved by
@@ -39,11 +39,11 @@ function genBarcode() {
 }
 
 // CSV import template + minimal RFC-4180-ish parser (handles quotes & embedded commas).
-const IMPORT_COLUMNS = ["sku", "name", "material_type", "hsn", "barcode", "category", "uom", "cost_price", "sale_price", "tax_rate", "stock_qty", "reorder_lvl"];
+const IMPORT_COLUMNS = ["sku", "name", "material_type", "hsn", "barcode", "category", "uom", "alt_uom", "alt_uom_factor", "cost_price", "sale_price", "tax_rate", "stock_qty", "reorder_lvl"];
 const TEMPLATE_CSV =
   IMPORT_COLUMNS.join(",") + "\n" +
-  "SAMPLE-001,Sample Widget,trading,8479,8901111000017,General,pcs,100,150,18,50,10\n" +
-  "SAMPLE-002,Sample Raw Steel,raw,7208,,Metals,kg,40,0,18,500,100\n";
+  "SAMPLE-001,Sample Widget,trading,8479,8901111000017,General,pcs,box,12,100,150,18,50,10\n" +
+  "SAMPLE-002,Sample Raw Steel,raw,7208,,Metals,kg,,,40,0,18,500,100\n";
 
 function parseCsv(text) {
   const rows = []; let field = "", row = [], inQ = false;
@@ -189,7 +189,8 @@ export default function Inventory() {
             viewing.barcode && { label: "Barcode", value: viewing.barcode },
             can("gst") && viewing.hsn && { label: "HSN / SAC", value: viewing.hsn },
             { label: "Unit", value: viewing.uom },
-            { label: "Stock on hand", value: `${fmtNum(viewing.stock_qty)} ${viewing.uom}` },
+            viewing.alt_uom && { label: "Alternate unit", value: `${viewing.alt_uom} (1 ${viewing.alt_uom} = ${fmtNum(viewing.alt_uom_factor)} ${viewing.uom})` },
+            { label: "Stock on hand", value: `${fmtNum(viewing.stock_qty)} ${viewing.uom}${viewing.alt_uom && viewing.alt_uom_factor > 0 ? ` (≈ ${fmtNum(viewing.stock_qty / viewing.alt_uom_factor)} ${viewing.alt_uom})` : ""}` },
             { label: "Reorder level", value: fmtNum(viewing.reorder_lvl) },
             can("gst") && { label: "GST", value: `${viewing.tax_rate}%` },
             { label: "Cost price", value: fmtMoney(viewing.cost_price, cur) },
@@ -249,6 +250,12 @@ export default function Inventory() {
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2"><Field label="Name"><input className="input" value={f.name} onChange={set("name")} /></Field></div>
           <Field label="Unit of measure"><input className="input" value={f.uom} onChange={set("uom")} /></Field>
+          <Field label="Alternate unit (optional)"><input className="input" value={f.alt_uom || ""} onChange={set("alt_uom")} placeholder="e.g. box" /></Field>
+          {(f.alt_uom || "").trim() && (
+            <Field label={`1 ${f.alt_uom.trim()} = ? ${f.uom || "unit"}`}>
+              <input type="number" min="0" className="input" value={f.alt_uom_factor ?? ""} onChange={set("alt_uom_factor")} placeholder="e.g. 12" />
+            </Field>
+          )}
           <Field label="SKU (optional)">
             <input className="input" value={f.sku} onChange={set("sku")} disabled={!isNew} placeholder={isNew ? `Auto e.g. ${SKU_PREFIX[f.material_type] || "IT"}-00001` : ""} />
             {isNew && !f.sku && <p className="mt-1 text-xs text-slate-400">Leave blank to auto-generate as <b>{SKU_PREFIX[f.material_type] || "IT"}-…</b></p>}
@@ -382,7 +389,7 @@ export default function Inventory() {
 
             <p className="mt-3 text-xs text-slate-400">
               Required columns: <b>sku</b>, <b>name</b>, <b>material_type</b> (one of: raw, semi_finished, finished, trading, consumable, service).
-              Optional: hsn, barcode, category, uom, cost_price, sale_price, tax_rate, stock_qty, reorder_lvl.
+              Optional: hsn, barcode, category, uom, alt_uom, alt_uom_factor (1 alt_uom = X uom), cost_price, sale_price, tax_rate, stock_qty, reorder_lvl.
             </p>
 
             <div className="mt-5 flex justify-end gap-2">
