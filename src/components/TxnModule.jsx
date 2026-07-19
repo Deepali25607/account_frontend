@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, Trash2, FileText, ScanLine, Camera, Barcode, Eye, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
@@ -227,6 +228,9 @@ export default function TxnModule({ cfg }) {
   const { me, can } = useAuth();
   const cur = me.tenant.currency;
   const isAdmin = me.user.role === "owner"; // only the admin/owner may edit posted bills
+  // Org-level sale-form customization (owner-managed in Company Profile).
+  // Only sales are customizable; purchases always show everything.
+  const sf = (key) => cfg.kind !== "sale" || (me.saleForm?.[key] ?? true);
   const toast = useToast();
   const [docs, setDocs] = useState(null);
   const [total, setTotal] = useState(0);
@@ -234,6 +238,18 @@ export default function TxnModule({ cfg }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
+  // Deep-link from the AI assistant ("create invoice for Ravi"): ?new=1&party=Ravi
+  // auto-opens the create form with the party preselected by name. The params are
+  // cleared immediately so refresh/back doesn't reopen the form.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [presetParty, setPresetParty] = useState("");
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setPresetParty(searchParams.get("party") || "");
+      setCreating(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // customer_id → phone, used to pre-fill the WhatsApp share number (sales only).
   const [partyPhones, setPartyPhones] = useState({});
   useEffect(() => {
@@ -433,20 +449,20 @@ export default function TxnModule({ cfg }) {
             ))}
           </div>
 
-          {cfg.kind === "sale" && (
+          {cfg.kind === "sale" && sf("whatsapp") && (
             <ShareWhatsApp company={me.tenant.name} tenant={me.tenant} currency={cur} doc={viewing} customer={viewing._party} phone={partyPhones[viewing.customer_id]} />
           )}
         </DetailModal>
       )}
 
-      {creating && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} companyInfo={me.tenant} canGst={can("gst")} canLoc={can("multi_location")} onClose={() => setCreating(false)} onSaved={() => { setPage(1); load(); }} toast={toast} />}
+      {creating && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} companyInfo={me.tenant} canGst={can("gst")} canLoc={can("multi_location")} sf={sf} presetParty={presetParty} onClose={() => { setCreating(false); setPresetParty(""); }} onSaved={() => { setPage(1); load(); }} toast={toast} />}
 
-      {editing && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} companyInfo={me.tenant} canGst={can("gst")} canLoc={can("multi_location")} editDoc={editing} onClose={() => setEditing(null)} onSaved={load} toast={toast} />}
+      {editing && <CreateDoc cfg={cfg} cur={cur} company={me.tenant.name} companyInfo={me.tenant} canGst={can("gst")} canLoc={can("multi_location")} sf={sf} editDoc={editing} onClose={() => setEditing(null)} onSaved={load} toast={toast} />}
     </>
   );
 }
 
-function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = null, onClose, onSaved, toast }) {
+function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, sf = () => true, presetParty = "", editDoc = null, onClose, onSaved, toast }) {
   const isEdit = !!editDoc;
   const [parties, setParties] = useState([]);
   const [saved, setSaved] = useState(null); // set after a sale is recorded → shows the print step
@@ -481,7 +497,16 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.get(`/${cfg.partyResource}`).then((r) => setParties(r.data));
+    api.get(`/${cfg.partyResource}`).then((r) => {
+      setParties(r.data);
+      // Deep-link prefill: match the spoken/typed party name (exact first, then
+      // contains, case-insensitive). No match → user picks or quick-adds as usual.
+      if (presetParty && !editDoc) {
+        const q = presetParty.toLowerCase();
+        const hit = r.data.find((p) => p.name.toLowerCase() === q) || r.data.find((p) => p.name.toLowerCase().includes(q));
+        if (hit) setPartyId(String(hit.id));
+      }
+    });
     api.get("/items").then((r) => setItems(r.data));
     // Keep an edited doc's own location; otherwise default to the tenant's Main store.
     if (canLoc) api.get("/locations").then((r) => { setLocations(r.data); const d = r.data.find((l) => l.is_default); if (d) setLocationId((prev) => prev || String(d.id)); });
@@ -645,7 +670,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
       toast.success(`${cfg.kind === "sale" ? "Sale" : "Purchase"} recorded`);
       onSaved(); // refresh the list behind the modal
 
-      if (cfg.kind === "sale") {
+      if (cfg.kind === "sale" && sf("print_step")) {
         // Keep the modal open on a print step. The create response is only the
         // header row, so fetch the full document (with line items) for printing.
         const party = parties.find((p) => String(p.id) === String(partyId));
@@ -661,7 +686,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
     } catch (e) {
       const msg = apiError(e);
       toast.error(msg);
-      if (/Insufficient stock/i.test(msg) && cfg.kind === "sale") setOverride(true); // surface override
+      if (/Insufficient stock/i.test(msg) && cfg.kind === "sale" && sf("oversell")) setOverride(true); // surface override
     } finally { setBusy(false); }
   };
 
@@ -697,7 +722,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
           </div>
         </div>
 
-        {cfg.kind === "sale" && (
+        {cfg.kind === "sale" && sf("whatsapp") && (
           <ShareWhatsApp company={company} tenant={companyInfo} currency={cur} doc={saved} customer={saved._party} phone={saved._phone} />
         )}
 
@@ -726,16 +751,18 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
             {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
-        <Field label="Document type">
-          <select className="input" value={docType} onChange={(e) => setDocType(e.target.value)}>
-            <option value={cfg.kind}>{cfg.kind === "sale" ? "Sale invoice" : "Purchase"}</option>
-            <option value="return">{cfg.returnLabel}</option>
-          </select>
-        </Field>
+        {(sf("doc_type") || docType === "return") && (
+          <Field label="Document type">
+            <select className="input" value={docType} onChange={(e) => setDocType(e.target.value)}>
+              <option value={cfg.kind}>{cfg.kind === "sale" ? "Sale invoice" : "Purchase"}</option>
+              <option value="return">{cfg.returnLabel}</option>
+            </select>
+          </Field>
+        )}
         <Field label={cfg.kind === "sale" ? "Invoice date" : "Bill date"}>
           <input type="date" className="input" value={docDate} onChange={(e) => setDocDate(e.target.value)} />
         </Field>
-        {canLoc && locations.length > 0 && (
+        {canLoc && locations.length > 0 && sf("warehouse") && (
           <Field label={cfg.kind === "sale" ? "Issue from warehouse" : "Receive into warehouse"}>
             <select className="input" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
               {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -791,7 +818,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         </Modal>
       )}
 
-      {cfg.kind === "sale" && canGst && (
+      {cfg.kind === "sale" && canGst && sf("tax_mode") && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-slate-600">Item prices are</span>
           <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-sm font-semibold">
@@ -808,20 +835,22 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         </div>
       )}
 
-      <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2">
-        <ScanLine className="h-5 w-5 shrink-0 text-brand-500" />
-        <input
-          className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-          placeholder="Scan with a reader or type a barcode/SKU, then press Enter"
-          value={scan}
-          onChange={(e) => setScan(e.target.value)}
-          onKeyDown={onScan}
-          autoComplete="off"
-        />
-        <button type="button" onClick={() => setScanCam(true)} className="btn-ghost btn-sm shrink-0" title="Scan with camera">
-          <Camera className="h-4 w-4" /> Camera
-        </button>
-      </div>
+      {sf("barcode_bar") && (
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2">
+          <ScanLine className="h-5 w-5 shrink-0 text-brand-500" />
+          <input
+            className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+            placeholder="Scan with a reader or type a barcode/SKU, then press Enter"
+            value={scan}
+            onChange={(e) => setScan(e.target.value)}
+            onKeyDown={onScan}
+            autoComplete="off"
+          />
+          <button type="button" onClick={() => setScanCam(true)} className="btn-ghost btn-sm shrink-0" title="Scan with camera">
+            <Camera className="h-4 w-4" /> Camera
+          </button>
+        </div>
+      )}
 
       <BarcodeScanner open={scanCam} onClose={() => setScanCam(false)} onDetect={(code) => { setScanCam(false); addByCode(code); }} />
 
@@ -959,38 +988,48 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         </div>
       )}
 
-      {cfg.kind === "sale" && (
+      {cfg.kind === "sale" && sf("oversell") && (
         <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />
           Allow overselling beyond available stock (authorized override)
         </label>
       )}
 
-      <div className="mt-4 grid gap-3 sm:max-w-md sm:grid-cols-2">
-        <Field label="Additional discount">
-          <div className="flex gap-2">
-            <input type="number" min="0" className="input" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0" />
-            <select className="input !w-28" value={discountType} onChange={(e) => setDiscountType(e.target.value)} title="Discount type">
-              <option value="amount">Amount</option>
-              <option value="percent">%</option>
-            </select>
-          </div>
-        </Field>
-        <Field label="Additional charges">
-          <input type="number" min="0" className="input" value={extraCharges} onChange={(e) => setExtraCharges(e.target.value)} placeholder="0" />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Additional charges note">
-            <input type="text" className="input" value={extraChargesNote} onChange={(e) => setExtraChargesNote(e.target.value)} placeholder="e.g. Freight, Packing, Insurance" />
-          </Field>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
-          <input type="checkbox" checked={roundOff} onChange={(e) => setRoundOff(e.target.checked)} />
-          Round off total{roundOff && Math.abs(roundOffAmt) > 0.0001 && (
-            <span className="text-slate-400">({roundOffAmt > 0 ? "+" : "−"}{fmtMoney(Math.abs(roundOffAmt), cur)})</span>
+      {(sf("discount") || sf("extra_charges") || sf("round_off")) && (
+        <div className="mt-4 grid gap-3 sm:max-w-md sm:grid-cols-2">
+          {sf("discount") && (
+            <Field label="Additional discount">
+              <div className="flex gap-2">
+                <input type="number" min="0" className="input" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0" />
+                <select className="input !w-28" value={discountType} onChange={(e) => setDiscountType(e.target.value)} title="Discount type">
+                  <option value="amount">Amount</option>
+                  <option value="percent">%</option>
+                </select>
+              </div>
+            </Field>
           )}
-        </label>
-      </div>
+          {sf("extra_charges") && (
+            <Field label="Additional charges">
+              <input type="number" min="0" className="input" value={extraCharges} onChange={(e) => setExtraCharges(e.target.value)} placeholder="0" />
+            </Field>
+          )}
+          {sf("extra_charges") && (
+            <div className="sm:col-span-2">
+              <Field label="Additional charges note">
+                <input type="text" className="input" value={extraChargesNote} onChange={(e) => setExtraChargesNote(e.target.value)} placeholder="e.g. Freight, Packing, Insurance" />
+              </Field>
+            </div>
+          )}
+          {sf("round_off") && (
+            <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
+              <input type="checkbox" checked={roundOff} onChange={(e) => setRoundOff(e.target.checked)} />
+              Round off total{roundOff && Math.abs(roundOffAmt) > 0.0001 && (
+                <span className="text-slate-400">({roundOffAmt > 0 ? "+" : "−"}{fmtMoney(Math.abs(roundOffAmt), cur)})</span>
+              )}
+            </label>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 sm:max-w-xs">
         <Field label={
@@ -1005,10 +1044,12 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, editDoc = n
         }>
           <div className="flex gap-2">
             <input type="number" min="0" className="input" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" />
-            <select className="input !w-28" value={payAccount} onChange={(e) => setPayAccount(e.target.value)} title={cfg.kind === "sale" ? "Received in" : "Paid from"}>
-              <option value="cash">Cash</option>
-              <option value="bank">Bank</option>
-            </select>
+            {sf("payment_account") && (
+              <select className="input !w-28" value={payAccount} onChange={(e) => setPayAccount(e.target.value)} title={cfg.kind === "sale" ? "Received in" : "Paid from"}>
+                <option value="cash">Cash</option>
+                <option value="bank">Bank</option>
+              </select>
+            )}
           </div>
         </Field>
       </div>

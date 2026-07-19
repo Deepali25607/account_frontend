@@ -120,3 +120,20 @@ body {
 .dark .hover\:bg-slate-50\/60:hover { background-color: rgba(30, 41, 59, 0.6); }
 .dark .hover\:bg-slate-100:hover { background-color: #334155; }
 .dark .hover\:bg-white:hover { background-color: #1e293b; }
+
+/* ── LedgerFlow AI console ─────────────────────────────────────────────
+   The floating assistant is always dark by design; undo the dark-mode slate
+   remaps above so its text keeps the intended contrast in both themes. */
+.dark .ai-console .text-slate-200 { color: #e2e8f0; }
+.dark .ai-console .text-slate-300 { color: #cbd5e1; }
+.dark .ai-console .text-slate-400 { color: #94a3b8; }
+.dark .ai-console .text-slate-500 { color: #64748b; }
+.dark .ai-console .text-slate-600 { color: #475569; }
+.dark .ai-console .hover\:text-slate-300:hover { color: #cbd5e1; }
+
+@keyframes ai-ring { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.8); opacity: 0; } }
+.ai-ring { animation: ai-ring 2s cubic-bezier(.2, .6, .4, 1) infinite; }
+@keyframes ai-blob { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(18px, -22px) scale(1.08); } }
+.ai-blob { animation: ai-blob 9s ease-in-out infinite; }
+@keyframes ai-pop { from { opacity: 0; transform: translateY(18px) scale(.95); } to { opacity: 1; transform: none; } }
+.ai-pop { animation: ai-pop .28s cubic-bezier(.2, .9, .3, 1.15); }

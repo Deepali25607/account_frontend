@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, Save, ShieldAlert, Image as ImageIcon, Upload, Download, DatabaseBackup, AlertTriangle } from "lucide-react";
+import { Building2, Save, ShieldAlert, Image as ImageIcon, Upload, Download, DatabaseBackup, AlertTriangle, SlidersHorizontal } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Field, Spinner, Modal, useToast, apiError } from "../ui";
@@ -124,9 +124,79 @@ export default function CompanyProfile() {
           </button>
         </div>
 
+        <SaleFormSettings />
+
         <BackupRestore />
       </div>
     </>
+  );
+}
+
+/**
+ * Owner-managed customization of the sale invoice form: untick anything the
+ * business doesn't use and the form simply hides it. Purchases are unaffected.
+ * Keys mirror SALE_FORM_KEYS in account-backend/src/routes/auth.js.
+ */
+const SALE_FORM_OPTIONS = [
+  { key: "doc_type", label: "Document type selector", hint: "Choose between Sale invoice and Credit note. Hidden → every entry is a sale invoice (existing credit notes still open correctly)." },
+  { key: "warehouse", label: "Warehouse selector", hint: "Pick which warehouse stock is issued from. Hidden → the default (Main) store is used." },
+  { key: "barcode_bar", label: "Barcode scanning bar", hint: "Scan with a reader or camera to add items." },
+  { key: "tax_mode", label: "GST inclusive / exclusive switch", hint: "Hidden → prices are always treated as exclusive of GST." },
+  { key: "oversell", label: "Overselling override", hint: "Checkbox to bill more than available stock. Hidden → sales are always blocked at available stock." },
+  { key: "discount", label: "Additional discount", hint: "Bill-level discount (amount or %)." },
+  { key: "extra_charges", label: "Additional charges", hint: "Freight / packing / insurance charges with a note." },
+  { key: "round_off", label: "Round off", hint: "Snap the grand total to a whole number." },
+  { key: "payment_account", label: "Cash / Bank selector", hint: "Where the received amount landed. Hidden → recorded as Cash." },
+  { key: "print_step", label: "Print step after saving", hint: "The receipt / A4 print screen after a sale is recorded. Hidden → the form just closes." },
+  { key: "whatsapp", label: "WhatsApp share", hint: "Share the invoice PDF on WhatsApp after saving or from a sale's details." },
+];
+
+function SaleFormSettings() {
+  const { me, refresh } = useAuth();
+  const toast = useToast();
+  const [f, setF] = useState(() => ({ ...(me.saleForm || {}) }));
+  const [busy, setBusy] = useState(false);
+  const hiddenCount = SALE_FORM_OPTIONS.filter((o) => f[o.key] === false).length;
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put("/auth/me/sale-form", f);
+      await refresh(); // sale form reads these from /me
+      toast.success("Sale invoice form updated");
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <section className="card p-5">
+      <h3 className="mb-1 flex items-center gap-2 font-bold text-slate-800"><SlidersHorizontal className="h-4 w-4 text-brand-600" /> Sale invoice form</h3>
+      <p className="mb-4 text-sm text-slate-500">
+        Untick anything your business doesn't use — the sale form hides it and stays simple. Purchases aren't affected.
+      </p>
+      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+        {SALE_FORM_OPTIONS.map((o) => (
+          <label key={o.key} className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={f[o.key] !== false}
+              onChange={(e) => setF((x) => ({ ...x, [o.key]: e.target.checked }))}
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-700">{o.label}</span>
+              <span className="block text-xs text-slate-400">{o.hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+        <p className="text-xs text-slate-400">{hiddenCount === 0 ? "All features shown (default)." : `${hiddenCount} feature${hiddenCount === 1 ? "" : "s"} hidden from the sale form.`}</p>
+        <button className="btn-primary" disabled={busy} onClick={save}>
+          {busy ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />} Save form settings
+        </button>
+      </div>
+    </section>
   );
 }
 

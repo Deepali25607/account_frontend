@@ -10,6 +10,7 @@ import { useAuth } from "../auth";
 import { useTheme } from "../theme";
 import { ROUTES } from "../routes";
 import { asset } from "../config";
+import AiChatbot from "./AiChatbot";
 
 const TIER_STYLES = {
   basic: "bg-emerald-100 text-emerald-700",
@@ -226,6 +227,9 @@ export default function Layout() {
           <span className="relative">More</span>
         </button>
       </nav>
+
+      {/* floating AI assistant — available on every screen */}
+      <AiChatbot />
     </div>
   );
 }

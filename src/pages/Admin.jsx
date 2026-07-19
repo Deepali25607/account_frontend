@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Building2, Users, ShieldCheck, ShieldOff, LogOut, Sun, Moon,
   RefreshCw, Tags, Save, Ticket, Plus, Trash2, Power,
-  ClipboardList, Upload, QrCode, BadgeCheck,
+  ClipboardList, Upload, QrCode, BadgeCheck, Sparkles,
 } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
@@ -72,6 +72,18 @@ export default function Admin() {
     finally { setBusyId(null); }
   };
 
+  // AI assistant is a paid add-on billed outside the plan — only the super
+  // admin grants or revokes it here (after collecting payment).
+  const toggleAi = async (org) => {
+    setBusyId(org.id);
+    try {
+      await api.patch(`/platform/orgs/${org.id}/ai`, { enabled: !org.aiEnabled });
+      toast.success(`AI assistant ${org.aiEnabled ? "disabled" : "enabled"} for ${org.name}`);
+      await load();
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setBusyId(null); }
+  };
+
   return (
     <div className="min-h-full bg-slate-50">
       {/* top bar */}
@@ -123,6 +135,7 @@ export default function Admin() {
                     <th className="th">Purch.</th>
                     <th className="th">Sales</th>
                     <th className="th">Plan</th>
+                    <th className="th">AI add-on</th>
                     <th className="th">Status</th>
                     <th className="th text-right">Action</th>
                   </tr>
@@ -149,6 +162,19 @@ export default function Admin() {
                         </select>
                       </td>
                       <td className="td">
+                        <button
+                          onClick={() => toggleAi(o)}
+                          disabled={busyId === o.id}
+                          title={o.aiEnabled ? "Disable the AI assistant for this org" : "Enable the AI assistant (paid add-on)"}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
+                            o.aiEnabled ? "bg-violet-100 text-violet-700 hover:bg-violet-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                          }`}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          {o.aiEnabled ? "On" : "Off"}
+                        </button>
+                      </td>
+                      <td className="td">
                         <span className={`badge ${o.active ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
                           {o.active ? "Active" : "Suspended"}
                         </span>
@@ -172,7 +198,8 @@ export default function Admin() {
         </div>
 
         <p className="mt-4 text-xs text-slate-400">
-          Changing a plan instantly grants or revokes that organization's feature access. Suspending blocks all of its users from signing in until restored.
+          Changing a plan instantly grants or revokes that organization's feature access. The AI add-on is billed separately —
+          switch it on only after payment. Suspending blocks all of its users from signing in until restored.
         </p>
 
         {/* Plan pricing */}

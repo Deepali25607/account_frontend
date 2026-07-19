@@ -7,7 +7,6 @@ import { ROUTES } from "../routes";
 import { useAuth } from "../auth";
 import { fmtMoney, fmtNum, SkeletonCard, Skeleton } from "../ui";
 import PageHead from "../components/PageHead";
-import BusinessAssistant from "../components/BusinessAssistant";
 
 function Kpi({ icon: Icon, label, value, tone = "brand" }) {
   const tones = {
@@ -65,10 +64,6 @@ export default function Dashboard() {
         <Kpi icon={Wallet} tone="violet" label="To Pay" value={fmtMoney(d.payables, cur)} />
         <Kpi icon={Boxes} tone="amber" label="Stock value" value={fmtMoney(d.stockValue, cur)} />
         <Kpi icon={AlertTriangle} tone="rose" label="Low-stock items" value={fmtNum(d.lowStock)} />
-      </div>
-
-      <div className="mt-4 animate-fade-up">
-        <BusinessAssistant cur={cur} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
