@@ -10,7 +10,7 @@ const BRAND = [37, 71, 233]; // brand-600
  * Returns { name, lines[] } where lines are the address/contact/GSTIN rows to
  * print under the company name on documents.
  */
-function companyInfo(company) {
+export function companyInfo(company) {
   if (!company) return { name: "", lines: [], logo: "" };
   if (typeof company === "string") return { name: company, lines: [], logo: "" };
   const c = company;
@@ -181,12 +181,15 @@ export function exportInvoicePdf({ company, currency, doc, customer, party, kind
   // Only surface the per-line discount column when at least one line carries one.
   const hasDisc = (doc.lines || []).some((l) => Number(l.discount) > 0);
   const discCell = (l) => Number(l.discount) > 0 ? `- ${money(l.discount)}${l.discount_type === "percent" ? ` (${l.discount_value}%)` : ""}` : "—";
+  // Tax-inclusive sales store the GST-in price in unit_price — print the ex-tax
+  // rate instead, so Rate + Tax % reconciles with Amount and the subtotal.
+  const rateOf = (l) => Number(doc.tax_inclusive) && Number(l.tax_rate) > 0 ? l.unit_price / (1 + l.tax_rate / 100) : l.unit_price;
   const head = ["#", "Item", "HSN/SAC", "Qty", "Rate", ...(hasDisc ? ["Disc"] : []), "Tax %", "Amount"];
   const rightCols = head.map((h, i) => ["Qty", "Rate", "Disc", "Tax %", "Amount"].includes(h) ? i : -1).filter((i) => i >= 0);
   autoTable(pdf, {
     startY: y + 6,
     head: [head],
-    body: (doc.lines || []).map((l, i) => [i + 1, l.item_name, l.hsn || "—", l.qty, money(l.unit_price), ...(hasDisc ? [discCell(l)] : []), `${l.tax_rate}%`, money(l.line_total)]),
+    body: (doc.lines || []).map((l, i) => [i + 1, l.item_name, l.hsn || "—", l.qty, money(rateOf(l)), ...(hasDisc ? [discCell(l)] : []), `${l.tax_rate}%`, money(l.line_total)]),
     theme: "grid",
     styles: { fontSize: 9, cellPadding: 2.6, lineColor: LINE, lineWidth: 0.15, textColor: 50 },
     headStyles: { fillColor: BRAND, textColor: 255, fontStyle: "bold", lineWidth: 0 },

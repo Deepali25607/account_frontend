@@ -78,7 +78,8 @@ export default function PublicInvoice() {
                     <tr key={i} className="border-t border-slate-100">
                       <td className="px-3 py-2 text-slate-700">{l.item_name}</td>
                       <td className="px-3 py-2 text-right">{l.qty}</td>
-                      <td className="px-3 py-2 text-right">{fmtMoney(l.unit_price, cur)}</td>
+                      {/* Tax-inclusive sales carry the GST-in price — show the ex-tax rate so Rate + Tax% matches Amount. */}
+                      <td className="px-3 py-2 text-right">{fmtMoney(Number(doc.tax_inclusive) && Number(l.tax_rate) > 0 ? l.unit_price / (1 + l.tax_rate / 100) : l.unit_price, cur)}</td>
                       <td className="px-3 py-2 text-right">{l.tax_rate}%</td>
                       <td className="px-3 py-2 text-right font-medium">{fmtMoney(l.line_total, cur)}</td>
                     </tr>

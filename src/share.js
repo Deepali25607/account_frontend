@@ -73,6 +73,7 @@ function pack({ company, currency, doc, customer }) {
     ch: Number(doc.extra_charges || 0),
     cn: doc.extra_charges_note || "",
     g: Number(doc.grand_total || 0),
+    ti: Number(doc.tax_inclusive || 0),
     l: (doc.lines || []).map((l) => [l.item_name, l.hsn || "", Number(l.qty || 0), Number(l.unit_price || 0), Number(l.tax_rate || 0), Number(l.line_total || 0)]),
   };
 }
@@ -99,6 +100,7 @@ export function unpack(o) {
       extra_charges: o.ch || 0,
       extra_charges_note: o.cn || "",
       grand_total: o.g,
+      tax_inclusive: o.ti || 0,
       lines: (o.l || []).map(([item_name, hsn, qty, unit_price, tax_rate, line_total]) => ({ item_name, hsn, qty, unit_price, tax_rate, line_total })),
     },
   };
