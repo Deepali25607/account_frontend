@@ -1,66 +1,85 @@
 import { useEffect, useState } from "react";
-import { Download, FileText, FileSpreadsheet, Printer, Share2, Users, Truck, X } from "lucide-react";
+import { Download, FileText, FileSpreadsheet, Printer, Share2, Users, Truck, X, Search, Receipt, Package, TrendingUp, Wallet, ChevronDown, ChevronRight, ArrowLeft } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { fmtMoney, Spinner, Empty, Modal, useToast, apiError } from "../ui";
+import { fmtMoney, Spinner, Empty, Modal, useToast, apiError, SkeletonRows } from "../ui";
 import { exportTablePdf } from "../pdf";
 import { outputFile } from "../files";
 import { waUrl, normalizePhone } from "../share";
 import PageHead from "../components/PageHead";
+import DateRangeFilter, { presetRange } from "../components/DateRangeFilter";
 
-const REPORTS = [
-  { id: "stock-summary", label: "Stock Summary" },
-  { id: "sales-register", label: "Sales Register" },
-  { id: "purchase-register", label: "Purchase Register" },
-  { id: "stock-movement", label: "Stock Movement" },
-  { id: "supplier-by-item", label: "Supplier Report By Item" },
-  { id: "profit-estimate", label: "Profit Estimate" },
-  { id: "bill-profit", label: "Bill Wise Profit" },
-  { id: "outstanding", label: "Receivables / Payables" },
-  { id: "supplier-outstanding", label: "Supplier Wise Outstanding" },
-  { id: "customer-outstanding", label: "Customer Wise Outstanding" },
+// Reports grouped into modules — the page shows a module picker, then one card
+// per report in that module (click a card to open the report).
+const MODULES = [
+  { label: "Sales", icon: Receipt, reports: [
+    { id: "sales-register", label: "Sales Register", desc: "Every sale invoice and credit note in the period." },
+  ]},
+  { label: "Purchase", icon: Truck, reports: [
+    { id: "purchase-register", label: "Purchase Register", desc: "Every purchase bill and debit note in the period." },
+    { id: "supplier-by-item", label: "Supplier Report By Item", desc: "Qty and value purchased per item, by supplier." },
+  ]},
+  { label: "Inventory", icon: Package, reports: [
+    { id: "stock-summary", label: "Stock Summary", desc: "Current quantity and valuation of every item." },
+    { id: "stock-movement", label: "Stock Movement", desc: "Every stock in and out over the period." },
+  ]},
+  { label: "Profit", icon: TrendingUp, reports: [
+    { id: "profit-estimate", label: "Profit Estimate", desc: "Sales, cost of goods and gross margin for the period." },
+    { id: "bill-profit", label: "Bill Wise Profit", desc: "Gross profit earned on each sale invoice." },
+    { id: "category-profit", label: "Category Wise Profit", desc: "Sales, cost and profit rolled up by item category." },
+  ]},
+  { label: "Outstanding", icon: Wallet, reports: [
+    { id: "outstanding", label: "Receivables / Payables", desc: "Who owes you and whom you owe, right now." },
+    { id: "supplier-outstanding", label: "Supplier Wise Outstanding", desc: "Unpaid balance per supplier, with ageing." },
+    { id: "customer-outstanding", label: "Customer Wise Outstanding", desc: "Unpaid balance per customer, with ageing." },
+  ]},
 ];
+const REPORTS = MODULES.flatMap((m) => m.reports);
 
 // Reports that are a point-in-time snapshot (no date range applies).
 const SNAPSHOT = new Set(["stock-summary", "outstanding", "supplier-outstanding", "customer-outstanding"]);
-
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const monthsAgo = (n) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10); };
+// Reports rendered as custom layouts rather than the generic sortable table.
+const CUSTOM_VIEW = new Set(["profit-estimate", "outstanding"]);
 
 export default function Reports() {
   const { me } = useAuth();
   const cur = me.tenant.currency;
-  const [active, setActive] = useState("stock-summary");
-  const [from, setFrom] = useState(monthsAgo(6));
-  const [to, setTo] = useState(todayISO());
+  const [modIdx, setModIdx] = useState(0);
+  const [active, setActive] = useState(null); // null = show the module's report cards
+  const [preset, setPreset] = useState("last365");
+  const [range, setRange] = useState(() => presetRange("last365"));
   const [data, setData] = useState(null);
   // Header controls for the generic table (lifted so export reflects the view).
   const [sort, setSort] = useState({ col: null, dir: "asc" });
-  const [filters, setFilters] = useState({});
+  const [q, setQ] = useState("");
 
   useEffect(() => {
+    if (!active) return;
     setData(null);
-    api.get(`/reports/${active}`, { params: { from, to } }).then((r) => setData(r.data));
-  }, [active, from, to]);
+    api.get(`/reports/${active}`, { params: { from: range.from, to: range.to } }).then((r) => setData(r.data));
+  }, [active, range.from, range.to]);
 
-  // Switch report: reset data + header sort/filter (columns differ per report).
-  const selectReport = (id) => { setData(null); setSort({ col: null, dir: "asc" }); setFilters({}); setActive(id); };
+  // Open a report: reset header sort/search (columns differ per report).
+  const selectReport = (id) => { setData(null); setSort({ col: null, dir: "asc" }); setQ(""); setActive(id); };
+  // Switch module (or press Back): return to that module's card list.
+  const pickModule = (i) => { setModIdx(i); setData(null); setActive(null); };
+  const pickPreset = (id) => { setPreset(id); if (id !== "custom") setRange(presetRange(id)); };
+  const mod = MODULES[modIdx];
 
-  // Columns come from the full dataset so headers/inputs survive a 0-match filter.
+  // Columns come from the full dataset so headers survive a 0-match search.
   const cols = Array.isArray(data) && data.length
     ? Object.keys(data[0]).filter((c) => c !== "id" && c !== "low_stock") : [];
-  const viewRows = Array.isArray(data) ? sortRows(filterRows(data, filters), sort) : data;
+  const viewRows = Array.isArray(data) ? sortRows(filterRows(data, q), sort) : data;
 
   const toggleSort = (col) =>
     setSort((s) => s.col === col ? { col, dir: s.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
-  const setFilter = (col, val) => setFilters((f) => ({ ...f, [col]: val }));
 
   const rowsFor = () => data == null ? [] : active === "profit-estimate" ? [data] : Array.isArray(data) ? viewRows : flattenOutstanding(data);
 
   const [shareOpen, setShareOpen] = useState(false);
   const toast = useToast();
-  const reportLabel = REPORTS.find((r) => r.id === active).label;
-  const period = SNAPSHOT.has(active) ? "" : `${from} to ${to}`;
+  const reportLabel = active ? REPORTS.find((r) => r.id === active).label : "";
+  const period = SNAPSHOT.has(active) || !range.from ? "" : `${range.from} to ${range.to}`;
   const exportCols = (rows) => Object.keys(rows[0]).filter((c) => c !== "id" && c !== "low_stock");
 
   // Each export returns "shared" | "downloaded" (see files.js) — in the mobile
@@ -103,8 +122,8 @@ export default function Reports() {
     <>
       <PageHead
         title="Reports"
-        subtitle="Standard business reports — export to CSV, Excel or PDF"
-        action={<div className="flex flex-wrap gap-2">
+        subtitle="Choose a module to see its reports — each report has filters and CSV / Excel / PDF export"
+        action={active && <div className="flex flex-wrap gap-2">
           <button className="btn-ghost" onClick={() => exportCsv()}><Download className="h-4 w-4" /> CSV</button>
           <button className="btn-ghost" onClick={() => exportExcel()}><FileSpreadsheet className="h-4 w-4" /> Excel</button>
           <button className="btn-ghost" onClick={() => exportPdf()}><FileText className="h-4 w-4" /> PDF</button>
@@ -120,30 +139,94 @@ export default function Reports() {
         onShare={(format, message) => format === "excel" ? exportExcel(message) : exportPdf(message)}
       />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {REPORTS.map((r) => (
-          <button key={r.id} onClick={() => selectReport(r.id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${active === r.id ? "bg-brand-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
-            {r.label}
-          </button>
-        ))}
+      <div className="mb-4">
+        <ModulePicker modules={MODULES} value={modIdx} onPick={pickModule} />
       </div>
 
-      {!SNAPSHOT.has(active) && (
-        <div className="mb-4 flex flex-wrap items-end gap-3">
-          <label className="text-sm"><span className="label">From</span><input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-          <label className="text-sm"><span className="label">To</span><input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+      {!active ? (
+        /* Card per report in the chosen module — click to open. */
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {mod.reports.map((r) => (
+            <button key={r.id} onClick={() => selectReport(r.id)}
+              className="card flex items-center gap-3 p-4 text-left transition-shadow hover:shadow-md">
+              <div>
+                <div className="font-bold text-slate-800">{r.label}</div>
+                <div className="mt-0.5 text-sm text-slate-500">{r.desc}</div>
+              </div>
+              <ChevronRight className="ml-auto h-5 w-5 shrink-0 text-slate-400" />
+            </button>
+          ))}
         </div>
-      )}
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button className="btn-ghost btn-sm" onClick={() => pickModule(modIdx)}><ArrowLeft className="h-4 w-4" /> Back</button>
+            <span className="font-bold text-slate-800">{reportLabel}</span>
+          </div>
 
-      <div className="card overflow-hidden">
-        {data === null ? <div className="grid h-40 place-items-center"><Spinner className="h-6 w-6 text-brand-500" /></div>
-          : active === "profit-estimate" ? <Profit data={data} cur={cur} />
-          : active === "outstanding" ? <Outstanding data={data} cur={cur} />
-          : <Table rows={viewRows} cols={cols} total={Array.isArray(data) ? data.length : 0}
-              cur={cur} sort={sort} onSort={toggleSort} filters={filters} onFilter={setFilter} />}
-      </div>
+          {(!SNAPSHOT.has(active) || !CUSTOM_VIEW.has(active)) && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              {!SNAPSHOT.has(active) && (
+                <DateRangeFilter preset={preset} range={range} onPreset={pickPreset} onCustom={(patch) => setRange((r) => ({ ...r, ...patch }))} />
+              )}
+              {!CUSTOM_VIEW.has(active) && (
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input className="input w-56 pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search this report…" />
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="card overflow-hidden">
+            {data === null ? <div className="p-4"><SkeletonRows rows={6} /></div>
+              : active === "profit-estimate" ? <Profit data={data} cur={cur} />
+              : active === "outstanding" ? <Outstanding data={data} cur={cur} />
+              : <Table rows={viewRows} cols={cols} total={Array.isArray(data) ? data.length : 0}
+                  cur={cur} sort={sort} onSort={toggleSort} searching={!!q.trim()} />}
+          </div>
+        </>
+      )}
     </>
+  );
+}
+
+/** "Module" dropdown: icon + name + report count per module, like the reference
+ *  design. A transparent full-screen backdrop closes it on any outside click. */
+function ModulePicker({ modules, value, onPick }) {
+  const [open, setOpen] = useState(false);
+  const mod = modules[value];
+  const Icon = mod.icon;
+  const Badge = ({ n }) => <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{n}</span>;
+  return (
+    <div className="relative inline-block">
+      <span className="label">Module</span>
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        className="flex w-64 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50">
+        <Icon className="h-4 w-4 text-brand-600" />
+        <span>{mod.label}</span>
+        <Badge n={mod.reports.length} />
+        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute z-20 mt-1 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+            {modules.map((m, i) => {
+              const MIcon = m.icon;
+              return (
+                <button key={m.label} type="button" onClick={() => { onPick(i); setOpen(false); }}
+                  className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-slate-50 ${i === value ? "bg-brand-50 text-brand-700" : "text-slate-700"}`}>
+                  <MIcon className={`h-4 w-4 ${i === value ? "text-brand-600" : "text-slate-400"}`} />
+                  <span>{m.label}</span>
+                  <Badge n={m.reports.length} />
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -189,41 +272,32 @@ function Outstanding({ data, cur }) {
 
 const MONEY_COLS = new Set(["subtotal", "tax_total", "grand_total", "paid", "received", "valuation", "cost_price", "avg_price", "value", "total_billed", "outstanding", "0-30", "31-60", "61-90", "90+", "sales_value", "cost_value", "gross_profit"]);
 
-function Table({ rows, cols, total, cur, sort, onSort, filters, onFilter }) {
+function Table({ rows, cols, total, cur, sort, onSort, searching }) {
   if (!cols.length) return <Empty title="No data for this period" />;
   const hidden = total - rows.length;
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[640px]">
         <thead>
-          {/* Click a header to sort (toggles asc/desc). */}
+          {/* Click a header to sort (toggles asc/desc); the arrow shows only on the active column. */}
           <tr className="bg-slate-50">
             {cols.map((c) => {
               const on = sort.col === c;
               return (
                 <th key={c} className={`th ${MONEY_COLS.has(c) ? "text-right" : ""}`}>
                   <button type="button" onClick={() => onSort(c)} title="Sort by this column"
-                    className={`inline-flex items-center gap-1 hover:text-brand-600 ${MONEY_COLS.has(c) ? "flex-row-reverse" : ""} ${on ? "text-brand-600" : ""}`}>
+                    className={`inline-flex items-center gap-1 transition-colors hover:text-brand-600 ${MONEY_COLS.has(c) ? "flex-row-reverse" : ""} ${on ? "text-brand-600" : ""}`}>
                     <span>{label(c)}</span>
-                    <span className="text-[10px] leading-none">{on ? (sort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
+                    {on && <span className="text-[10px] leading-none">{sort.dir === "asc" ? "▲" : "▼"}</span>}
                   </button>
                 </th>
               );
             })}
           </tr>
-          {/* Type to filter rows where the column contains the text. */}
-          <tr className="bg-slate-50">
-            {cols.map((c) => (
-              <th key={c} className="px-3 pb-2">
-                <input value={filters[c] || ""} onChange={(e) => onFilter(c, e.target.value)} placeholder="Filter…"
-                  className="w-full min-w-[80px] rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-normal text-slate-700 placeholder:text-slate-300 focus:border-brand-400 focus:outline-none" />
-              </th>
-            ))}
-          </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr><td colSpan={cols.length} className="td text-center text-slate-400">No rows match the filters</td></tr>
+            <tr><td colSpan={cols.length} className="td text-center text-slate-400">{searching ? "No rows match your search" : "No rows in this period"}</td></tr>
           ) : rows.map((r, i) => (
             <tr key={i} className="hover:bg-slate-50/60">
               {cols.map((c) => <td key={c} className={`td ${MONEY_COLS.has(c) ? "text-right" : ""}`}>{MONEY_COLS.has(c) ? fmtMoney(r[c], cur) : String(r[c] ?? "—")}</td>)}
@@ -240,11 +314,11 @@ function Table({ rows, cols, total, cur, sort, onSort, filters, onFilter }) {
 
 const label = (c) => c.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 const csvCell = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-// Substring filter across all active column inputs (case-insensitive, AND-combined).
-const filterRows = (rows, filters) => {
-  const active = Object.entries(filters).filter(([, v]) => String(v).trim());
-  if (!active.length) return rows;
-  return rows.filter((r) => active.every(([c, v]) => String(r[c] ?? "").toLowerCase().includes(String(v).toLowerCase())));
+// One search box for the whole table: keep rows where any column contains the text.
+const filterRows = (rows, q) => {
+  const needle = String(q).trim().toLowerCase();
+  if (!needle) return rows;
+  return rows.filter((r) => Object.values(r).some((v) => String(v ?? "").toLowerCase().includes(needle)));
 };
 // Numeric-aware sort; nulls sink to the bottom regardless of direction.
 const sortRows = (rows, { col, dir }) => {
