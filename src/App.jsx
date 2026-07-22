@@ -21,6 +21,7 @@ import Manufacturing from "./pages/Manufacturing";
 import Warehouses from "./pages/Warehouses";
 import Team from "./pages/Team";
 import Appearance from "./pages/Appearance";
+import PrintSettings from "./pages/PrintSettings";
 import CompanyProfile from "./pages/CompanyProfile";
 import Billing from "./pages/Billing";
 import Locked from "./pages/Locked";
@@ -90,6 +91,7 @@ export default function App() {
               <Route path={ROUTES.team} element={<Feature name="multi_user" title="Team & Access"><Team /></Feature>} />
               <Route path={ROUTES.company} element={<CompanyProfile />} />
               <Route path={ROUTES.appearance} element={<Appearance />} />
+              <Route path={ROUTES.printSettings} element={<PrintSettings />} />
               <Route path={ROUTES.billing} element={<Billing />} />
             </Route>
             <Route path="*" element={<Navigate to={ROUTES.home} replace />} />

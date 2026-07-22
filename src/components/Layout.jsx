@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3,
   BookOpenCheck, Factory, Crown, LogOut, Menu, Lock, UsersRound, Warehouse,
   Palette, Sun, Moon, Wallet, Building2, Smartphone, Download, X, Clock, AlertTriangle,
-  ReceiptText,
+  ReceiptText, Printer,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { useTheme } from "../theme";
@@ -42,6 +42,7 @@ const NAV = [
   { to: ROUTES.team, label: "Team & Access", icon: UsersRound, feature: "multi_user" },
   { to: ROUTES.company, label: "Company profile", icon: Building2, feature: null, ownerOnly: true },
   { to: ROUTES.appearance, label: "Appearance", icon: Palette, feature: null },
+  { to: ROUTES.printSettings, label: "Print settings", icon: Printer, feature: null },
 ];
 
 export default function Layout() {

@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Plus, Trash2, FileText, ScanLine, Camera, Barcode, Eye, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { Plus, Trash2, FileText, ScanLine, Camera, Barcode, Eye, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus, Search } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, Modal, Field, LineCol, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
-import { exportInvoicePdf, exportThermalReceipt, THERMAL_SIZES } from "../pdf";
+import { exportInvoicePdf, THERMAL_SIZES } from "../pdf";
 import { buildInvoiceLink, invoiceShareMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
 import PageHead from "./PageHead";
 import BarcodeScanner from "./BarcodeScanner";
 import BarcodeView from "./BarcodeView";
 import ItemPicker from "./ItemPicker";
+import DateRangeFilter, { presetRange } from "./DateRangeFilter";
+import useThermalPrint from "./useThermalPrint";
+import { canPrintDirect, savedPrinter } from "../printer";
+import { loadPrintSettings } from "../printSettings";
+import { ROUTES } from "../routes";
 
 const PAGE_SIZE = 20;
 const todayStr = () => new Date().toISOString().slice(0, 10); // matches the backend's default doc_date
@@ -40,6 +45,20 @@ function genBarcode() {
   return base + ((10 - (sum % 10)) % 10);
 }
 
+/** Sortable column header — click toggles asc/desc; the arrow shows only on the active column. */
+function Th({ id, sort, onSort, right, children }) {
+  const on = sort.col === id;
+  return (
+    <th className={`th ${right ? "text-right" : ""}`}>
+      <button type="button" onClick={() => onSort(id)} title="Sort by this column"
+        className={`inline-flex items-center gap-1 transition-colors hover:text-brand-600 ${right ? "flex-row-reverse" : ""} ${on ? "text-brand-600" : ""}`}>
+        <span>{children}</span>
+        {on && <span className="text-[10px] leading-none">{sort.dir === "asc" ? "▲" : "▼"}</span>}
+      </button>
+    </th>
+  );
+}
+
 /** One figure in the document money summary. `strong` = bold total, `accent` = brand colour. */
 function Sum({ label, value, strong, accent }) {
   return (
@@ -55,14 +74,19 @@ function Sum({ label, value, strong, accent }) {
  * The menu is positioned with fixed viewport coordinates so it isn't clipped by
  * the table's overflow containers.
  */
-function ReceiptMenu({ onPick }) {
+function ReceiptMenu({ onPick, onChangePrinter }) {
   const btnRef = useRef(null);
+  const nav = useNavigate();
   const [pos, setPos] = useState(null); // {top, right} when open, else null
   const toggle = () => {
     if (pos) return setPos(null);
     const r = btnRef.current.getBoundingClientRect();
     setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
   };
+  // Default target from Print Settings: A4 for "regular", saved roll width for thermal.
+  const ps = loadPrintSettings();
+  const defPick = ps.printerType === "regular" ? "a4" : ps.widthMm;
+  const defLabel = ps.printerType === "regular" ? "A4" : THERMAL_SIZES.find((s) => s.mm === ps.widthMm)?.label || `${ps.widthMm} mm`;
   return (
     <span className="ml-1 inline-block align-middle">
       <button ref={btnRef} className="btn-ghost btn-sm" onClick={toggle} title="Print thermal receipt">
@@ -71,8 +95,12 @@ function ReceiptMenu({ onPick }) {
       {pos && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setPos(null)} />
-          <div className="fixed z-50 w-36 rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg" style={{ top: pos.top, right: pos.right }}>
-            <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Receipt size</div>
+          <div className="fixed z-50 w-40 rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg" style={{ top: pos.top, right: pos.right }}>
+            <button className="block w-full px-3 py-1.5 text-left text-sm font-semibold text-brand-700 hover:bg-slate-50"
+              onClick={() => { setPos(null); onPick(defPick); }}>
+              Default <span className="font-normal text-slate-400">({defLabel})</span>
+            </button>
+            <div className="border-t border-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Receipt size</div>
             {THERMAL_SIZES.map((s) => (
               <button key={s.mm} className="block w-full px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
                 onClick={() => { setPos(null); onPick(s.mm); }}>
@@ -82,6 +110,17 @@ function ReceiptMenu({ onPick }) {
             <button className="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
               onClick={() => { setPos(null); onPick("a4"); }}>
               A4 <span className="text-slate-400">(invoice)</span>
+            </button>
+            {/* App only: swap the remembered Bluetooth printer. */}
+            {onChangePrinter && canPrintDirect() && savedPrinter() && (
+              <button className="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                onClick={() => { setPos(null); onChangePrinter(); }}>
+                Change printer…
+              </button>
+            )}
+            <button className="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+              onClick={() => { setPos(null); nav(ROUTES.printSettings); }}>
+              Print settings…
             </button>
           </div>
         </>
@@ -235,6 +274,24 @@ export default function TxnModule({ cfg }) {
   const [docs, setDocs] = useState(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  // Date-range filter (defaults to the last 365 days, like the reference UI).
+  const [preset, setPreset] = useState("last365");
+  const [range, setRange] = useState(() => presetRange("last365"));
+  const pickPreset = (id) => { setPreset(id); setPage(1); if (id !== "custom") setRange(presetRange(id)); };
+  const setCustom = (patch) => { setRange((r) => ({ ...r, ...patch })); setPage(1); };
+  // List filters + sort — all server-side, since the list is paginated.
+  const [q, setQ] = useState("");           // what's typed in the search box
+  const [qDeb, setQDeb] = useState("");     // debounced copy that drives the fetch
+  const [statusF, setStatusF] = useState("");
+  const [typeF, setTypeF] = useState("");
+  const [sort, setSort] = useState({ col: null, dir: "desc" });
+  useEffect(() => {
+    const t = setTimeout(() => { setQDeb(q); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+  const pickFilter = (set) => (e) => { set(e.target.value); setPage(1); };
+  const toggleSort = (col) => { setPage(1); setSort((s) => s.col === col ? { col, dir: s.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" }); };
+  const filtered = !!(qDeb.trim() || statusF || typeF || preset !== "all");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
@@ -273,9 +330,16 @@ export default function TxnModule({ cfg }) {
 
   const load = () => {
     setDocs(null);
-    api.get(`/${cfg.endpoint}`, { params: { page, pageSize: PAGE_SIZE } }).then((r) => { setDocs(r.data.rows); setTotal(r.data.total); });
+    const params = { page, pageSize: PAGE_SIZE };
+    if (range.from) params.from = range.from;
+    if (range.to) params.to = range.to;
+    if (qDeb.trim()) params.q = qDeb.trim();
+    if (statusF) params.status = statusF;
+    if (typeF) params.doc_type = typeF;
+    if (sort.col) { params.sort = sort.col; params.dir = sort.dir; }
+    api.get(`/${cfg.endpoint}`, { params }).then((r) => { setDocs(r.data.rows); setTotal(r.data.total); });
   };
-  useEffect(load, [cfg.endpoint, page]);
+  useEffect(load, [cfg.endpoint, page, range.from, range.to, qDeb, statusF, typeF, sort.col, sort.dir]);
 
   const act = async (id, action) => {
     try { await api.post(`/${cfg.endpoint}/${id}/${action}`); toast.success(action === "confirm" ? "Purchase approved — stock updated" : "Draft cancelled"); load(); }
@@ -292,8 +356,10 @@ export default function TxnModule({ cfg }) {
     } catch (e) { toast.error(apiError(e)); }
   };
 
-  // Thermal receipt for the currently-viewed sale/purchase, sized for 2"/3"/4" rolls.
-  const printReceipt = (widthMm) => exportThermalReceipt({
+  // Thermal receipt for the currently-viewed sale/purchase, sized for 2"/3"/4"
+  // rolls. In the Android app this prints straight to the Bluetooth printer.
+  const { printThermal, printerPicker, changePrinter } = useThermalPrint();
+  const printReceipt = (widthMm) => printThermal({
     company: me.tenant, currency: cur, doc: viewing, party: viewing._party,
     kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
   });
@@ -307,7 +373,7 @@ export default function TxnModule({ cfg }) {
       if (size === "a4") {
         exportInvoicePdf({ company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey], kind: cfg.kind, paymentKey: cfg.paymentKey, mode: "print" });
       } else {
-        exportThermalReceipt({
+        await printThermal({
           company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey],
           kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: size,
         });
@@ -317,6 +383,9 @@ export default function TxnModule({ cfg }) {
 
   // Show a per-line discount column in the detail view only when the doc has one.
   const viewingHasDisc = !!viewing && (viewing.lines || []).some((l) => Number(l.discount) > 0);
+  // Tax-inclusive sales store the GST-in price in unit_price — display the
+  // ex-tax rate so Price + Tax% reconciles with the line total and subtotal.
+  const viewRate = (l) => Number(viewing?.tax_inclusive) && Number(l.tax_rate) > 0 ? l.unit_price / (1 + l.tax_rate / 100) : l.unit_price;
 
   return (
     <>
@@ -326,17 +395,43 @@ export default function TxnModule({ cfg }) {
         action={<button className="btn-primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" /> {cfg.newLabel}</button>}
       />
 
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <DateRangeFilter preset={preset} range={range} onPreset={pickPreset} onCustom={setCustom} />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input className="input w-56 pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search doc # or ${cfg.partyLabel.toLowerCase()}…`} />
+        </div>
+        <select className="input w-auto" value={statusF} onChange={pickFilter(setStatusF)}>
+          <option value="">All Statuses</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="draft">Draft</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <select className="input w-auto" value={typeF} onChange={pickFilter(setTypeF)}>
+          <option value="">All Types</option>
+          <option value={cfg.kind} className="capitalize">{cfg.kind[0].toUpperCase() + cfg.kind.slice(1)}</option>
+          <option value="return">{cfg.returnLabel}</option>
+        </select>
+      </div>
+
       <div className="card overflow-hidden">
         {docs === null ? (
           <div className="grid h-40 place-items-center"><Spinner className="h-6 w-6 text-brand-500" /></div>
         ) : docs.length === 0 ? (
-          <Empty icon={FileText} title={`No ${cfg.endpoint} yet`} hint={`Create your first ${cfg.kind}.`} />
+          filtered
+            ? <Empty icon={FileText} title={`No ${cfg.endpoint} match your filters`} hint="Try widening the date range or clearing the filters." />
+            : <Empty icon={FileText} title={`No ${cfg.endpoint} yet`} hint={`Create your first ${cfg.kind}.`} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[680px]">
               <thead><tr className="bg-slate-50">
-                <th className="th">Doc #</th><th className="th">Date</th><th className="th">{cfg.partyLabel}</th>
-                <th className="th">Type</th><th className="th">Status</th>{can("gst") && <th className="th">Tax</th>}<th className="th text-right">Total</th>
+                <Th id="doc_no" sort={sort} onSort={toggleSort}>Doc #</Th>
+                <Th id="date" sort={sort} onSort={toggleSort}>Date</Th>
+                <Th id="party" sort={sort} onSort={toggleSort}>{cfg.partyLabel}</Th>
+                <Th id="type" sort={sort} onSort={toggleSort}>Type</Th>
+                <Th id="status" sort={sort} onSort={toggleSort}>Status</Th>
+                {can("gst") && <Th id="tax" sort={sort} onSort={toggleSort}>Tax</Th>}
+                <Th id="total" sort={sort} onSort={toggleSort} right>Total</Th>
                 <th className="th"></th>
               </tr></thead>
               <tbody>
@@ -375,7 +470,7 @@ export default function TxnModule({ cfg }) {
                       {isAdmin && d.status !== "cancelled" && (
                         <button className="btn-ghost btn-sm ml-1" onClick={() => openEdit(d)}><Pencil className="h-3.5 w-3.5" /> Edit</button>
                       )}
-                      <ReceiptMenu onPick={(mm) => printRowReceipt(d, mm)} />
+                      <ReceiptMenu onPick={(mm) => printRowReceipt(d, mm)} onChangePrinter={changePrinter} />
                     </td>
                   </tr>
                 ))}
@@ -385,6 +480,8 @@ export default function TxnModule({ cfg }) {
         )}
         {docs && docs.length > 0 && <Pager page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />}
       </div>
+
+      {printerPicker}
 
       {viewing && (
         <DetailModal
@@ -422,7 +519,7 @@ export default function TxnModule({ cfg }) {
                     <td className="td">{l.item_name} <span className="text-xs text-slate-400">{l.sku}</span></td>
                     {can("gst") && <td className="td text-slate-500">{l.hsn || "—"}</td>}
                     <td className="td text-right">{l.qty}</td>
-                    <td className="td text-right">{fmtMoney(l.unit_price, cur)}</td>
+                    <td className="td text-right">{fmtMoney(viewRate(l), cur)}</td>
                     {viewingHasDisc && <td className="td text-right text-rose-600">{Number(l.discount) > 0 ? `−${fmtMoney(l.discount, cur)}${l.discount_type === "percent" ? ` (${l.discount_value}%)` : ""}` : "—"}</td>}
                     {can("gst") && <td className="td text-right">{l.tax_rate}%</td>}
                     <td className="td text-right font-medium">{fmtMoney(l.line_total, cur)}</td>
@@ -443,7 +540,8 @@ export default function TxnModule({ cfg }) {
             </button>
             <span className="label !mb-0 ml-2 flex items-center gap-1.5"><Printer className="h-4 w-4 text-slate-400" /> Thermal receipt</span>
             {THERMAL_SIZES.map((s) => (
-              <button key={s.mm} className="btn-ghost btn-sm" onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)`}>
+              <button key={s.mm} className={`btn-ghost btn-sm ${s.mm === loadPrintSettings().widthMm ? "font-bold text-brand-700" : ""}`}
+                onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)${s.mm === loadPrintSettings().widthMm ? " — default" : ""}`}>
                 {s.label}
               </button>
             ))}
@@ -693,7 +791,9 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, sf = () => 
   const valid = partyId && lines.some((l) => l.item_id && Number(l.qty) > 0);
 
   // ── Print step (sales): shown after save instead of closing the modal ──
-  const printReceipt = (mm) => exportThermalReceipt({ company: companyInfo || company, currency: cur, doc: saved, party: saved._party, kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: mm });
+  // In the Android app the thermal sizes print straight to the Bluetooth printer.
+  const { printThermal, printerPicker } = useThermalPrint();
+  const printReceipt = (mm) => printThermal({ company: companyInfo || company, currency: cur, doc: saved, party: saved._party, kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: mm });
   const printA4 = () => exportInvoicePdf({ company: companyInfo || company, currency: cur, doc: saved, customer: saved._party, mode: "print" });
   const saveA4 = () => exportInvoicePdf({ company: companyInfo || company, currency: cur, doc: saved, customer: saved._party });
   const startAnother = () => {
@@ -715,12 +815,14 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, sf = () => 
           <p className="label flex items-center gap-1.5"><Printer className="h-4 w-4 text-slate-400" /> Print thermal receipt</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {THERMAL_SIZES.map((s) => (
-              <button key={s.mm} className="btn-ghost btn-sm" onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)`}>{s.label}</button>
+              <button key={s.mm} className={`btn-ghost btn-sm ${s.mm === loadPrintSettings().widthMm ? "font-bold text-brand-700" : ""}`}
+                onClick={() => printReceipt(s.mm)} title={`${s.label} roll (${s.mm} mm)${s.mm === loadPrintSettings().widthMm ? " — default" : ""}`}>{s.label}</button>
             ))}
             <button className="btn-ghost btn-sm" onClick={printA4} title="Print the A4 invoice"><Printer className="h-3.5 w-3.5" /> Print A4</button>
             <button className="btn-ghost btn-sm" onClick={saveA4} title="Download the A4 invoice PDF"><FileText className="h-3.5 w-3.5" /> A4 PDF</button>
           </div>
         </div>
+        {printerPicker}
 
         {cfg.kind === "sale" && sf("whatsapp") && (
           <ShareWhatsApp company={company} tenant={companyInfo} currency={cur} doc={saved} customer={saved._party} phone={saved._phone} />

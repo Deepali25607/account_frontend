@@ -20,5 +20,6 @@ export const ROUTES = {
   team: "/team",
   company: "/company",
   appearance: "/appearance",
+  printSettings: "/print-settings",
   billing: "/billing",
 };
