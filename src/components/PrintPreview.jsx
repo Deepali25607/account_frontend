@@ -19,7 +19,8 @@ export default function PrintPreview({ company, currency, doc, party, kind, paym
     try {
       return receiptPreviewLines({
         company, currency, doc, party, kind, paymentKey, widthMm,
-        format: ps.thermalFormat,
+        // "image" draws the same text layout as "old" onto the bitmap
+        format: ps.thermalFormat === "modern" ? "modern" : "old",
         charsPerLine: ps.charsPerLine === "auto" ? null : ps.charsPerLine,
         feedLines: 0, // don't render trailing feed as blank preview lines
       });

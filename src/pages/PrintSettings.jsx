@@ -16,8 +16,9 @@ const TYPES = [
 ];
 
 const FORMATS = [
-  { id: "modern", label: "Modern", desc: "Styled receipt: bold totals, big header, auto-cut" },
-  { id: "old", label: "Old", desc: "Plain text — works with older printers" },
+  { id: "image", label: "Image", desc: "Prints the bill as a picture — most compatible (how MyBillBook prints)" },
+  { id: "modern", label: "Modern", desc: "Styled text: bold totals, big header, auto-cut" },
+  { id: "old", label: "Old", desc: "Plain text — minimal commands" },
 ];
 
 const PRESET_MMS = THERMAL_SIZES.map((z) => z.mm);
@@ -339,6 +340,7 @@ export default function PrintSettings() {
                       ) : (
                         <div className="mt-3 flex flex-wrap gap-2">
                           <button className="btn-ghost btn-sm" onClick={runNativeTest}><Printer className="h-3.5 w-3.5" /> Test line</button>
+                          <button className="btn-ghost btn-sm" onClick={() => printSample("image")}>Sample bill · Image</button>
                           <button className="btn-ghost btn-sm" onClick={() => printSample("modern")}>Sample bill · Modern</button>
                           <button className="btn-ghost btn-sm" onClick={() => printSample("old")}>Sample bill · Old</button>
                         </div>
@@ -373,6 +375,7 @@ export default function PrintSettings() {
                           {testingNative
                             ? <span className="flex items-center gap-2 text-sm text-slate-500"><Spinner className="h-4 w-4 text-brand-500" /> Sending…</span>
                             : <>
+                                <button className="btn-ghost btn-sm" onClick={() => printSample("image")}>Sample bill · Image</button>
                                 <button className="btn-ghost btn-sm" onClick={() => printSample("old")}>Sample bill · Old</button>
                                 <button className="btn-ghost btn-sm" onClick={() => printSample("modern")}>Sample bill · Modern</button>
                               </>}
@@ -400,7 +403,7 @@ export default function PrintSettings() {
               </div>
               <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-slate-50 p-3.5 text-sm text-slate-600">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                <span>Please select <b>Old</b> format in case Modern doesn't work with your printer — it prints plain text without styling, which older printers handle better.</span>
+                <span><b>Image</b> renders the bill as a picture, so it prints on printers whose text mode misbehaves — pick it if Modern or Old come out blank. It's a bigger payload, so printing takes a few seconds longer.</span>
               </div>
             </section>
 

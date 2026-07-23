@@ -8,6 +8,7 @@
 import { registerPlugin } from "@capacitor/core";
 import { isNativeApp } from "./files";
 import { buildReceiptEscpos } from "./escpos";
+import { buildReceiptRaster } from "./escposRaster";
 import { loadPrintSettings } from "./printSettings";
 import { webBtSupported, savedWebPrinter, saveWebPrinter, forgetWebPrinter, printWebBt } from "./webbt";
 
@@ -66,12 +67,15 @@ const toB64 = (bytes) => {
  *  passes an explicit `format`. */
 export async function printDirect(printer, receiptArgs) {
   const ps = loadPrintSettings();
-  const bytes = buildReceiptEscpos({
+  const merged = {
     format: ps.thermalFormat,
     charsPerLine: ps.charsPerLine === "auto" ? null : ps.charsPerLine,
     encoding: ps.encoding, density: ps.density, feedLines: ps.feedLines, autoCut: ps.autoCut,
     ...receiptArgs,
-  });
+  };
+  // "image" renders the bill as GS v 0 raster — the printer's text engine is
+  // bypassed entirely (the mode mainstream billing apps use).
+  const bytes = merged.format === "image" ? await buildReceiptRaster(merged) : buildReceiptEscpos(merged);
   if (!bytes || bytes.length < 16) throw new Error("Receipt payload is empty — refusing to print");
   console.debug(`[print] escpos bytes ready: ${bytes.length}, sending via ${isNativeApp() ? "native SPP" : "Web Bluetooth"} to ${printer?.name || printer?.address || printer?.id}`);
   if (isNativeApp()) await ThermalPrinter.print({ address: printer.address, data: toB64(bytes) });
