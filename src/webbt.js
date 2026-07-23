@@ -145,19 +145,32 @@ export async function testWebPrinter(device) { await connect(device); }
 
 // ── writing ────────────────────────────────────────────────────────────────
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function writeOne(char, mode, part) {
+  if (mode === "noresp" && char.properties.writeWithoutResponse) {
+    await char.writeValueWithoutResponse(part);
+    await sleep(24);  // let the printer's buffer drain
+  } else {
+    await char.writeValueWithResponse(part);
+    await sleep(8);   // the ack paces us, but the bridge→head UART still needs air
+  }
+}
+
+// Some BLE bridges swallow the first packet after a connection settles — seen
+// as receipts printing with their opening bytes missing. Send a sacrificial
+// init (ESC @, harmless if it does arrive) so real data never rides the first
+// write, then give the link a beat.
+async function warmUp(char, mode) {
+  try { await writeOne(char, mode, Uint8Array.from([0x1b, 0x40])); } catch { /* ignore */ }
+  await sleep(150);
+}
+
 // 20-byte chunks: the write payload limit at the default BLE MTU. Anything
 // bigger relies on GATT long writes, which cheap printer firmware often ACKs
 // and then drops — the classic "paper feeds but prints blank" failure.
 async function writeAll(char, mode, bytes) {
-  for (let i = 0; i < bytes.length; i += 20) {
-    const part = bytes.slice(i, i + 20);
-    if (mode === "noresp" && char.properties.writeWithoutResponse) {
-      await char.writeValueWithoutResponse(part);
-      await new Promise((r) => setTimeout(r, 12)); // let the printer's buffer drain
-    } else {
-      await char.writeValueWithResponse(part);    // the response ack is our flow control
-    }
-  }
+  for (let i = 0; i < bytes.length; i += 20) await writeOne(char, mode, bytes.slice(i, i + 20));
 }
 
 /** Send ESC/POS `bytes` to `target` — a BluetoothDevice from pickWebPrinter(),
@@ -166,6 +179,7 @@ async function writeAll(char, mode, bytes) {
 export async function printWebBt(target, bytes) {
   const device = await resolve(target);
   const { char, mode } = await connect(device);
+  await warmUp(char, mode);
   await writeAll(char, mode, bytes);
 }
 
@@ -195,13 +209,17 @@ export async function probePrintChannels(target) {
   for (let i = 0; i < attempts.length; i++) {
     const { ch, mode } = attempts[i];
     const n = i + 1;
-    const payload = ascii(`\x1b@*** LedgerFlow test #${n} ***\n\n\n`);
+    // Plain repeated text: survives dropped packets (the number appears three
+    // times) and contains nothing a lossy stream could misread as a command.
+    const payload = ascii(`\nTEST ${n}  TEST ${n}  TEST ${n}\n\n\n`);
     try {
+      await warmUp(ch, mode);
       await writeAll(ch, mode, payload);
       results.push({ n, service: ch.service.uuid, char: ch.uuid, mode, sent: true });
     } catch (e) {
       results.push({ n, service: ch.service.uuid, char: ch.uuid, mode, sent: false, error: String(e?.message || e) });
     }
+    await sleep(400); // keep the printouts visually separate
   }
   return results;
 }
