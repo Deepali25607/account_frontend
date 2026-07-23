@@ -4,6 +4,7 @@ import { exportThermalReceipt } from "../pdf";
 import { canPrintDirect, savedPrinter, savePrinter, forgetPrinter, listPrinters, printDirect, isPluginMissing, friendlyPrintError } from "../printer";
 import { isNativeApp } from "../files";
 import { pickWebPrinter, RECONNECT_NEEDED } from "../webbt";
+import { loadPrintSettings } from "../printSettings";
 
 /**
  * Thermal printing with one-tap direct Bluetooth output.
@@ -42,7 +43,8 @@ export default function useThermalPrint() {
   // this session (e.g. after a reload without getDevices support) — re-open
   // the chooser and print to the freshly picked device.
   const printWeb = async (args) => {
-    let target = savedPrinter();
+    // Auto connect off → always show the chooser instead of the saved printer.
+    let target = loadPrintSettings().autoConnect ? savedPrinter() : null;
     try {
       if (!target) {
         target = await pickWebPrinter(); // browser's own device chooser
@@ -78,7 +80,7 @@ export default function useThermalPrint() {
     }
     if (!canPrintDirect()) return exportThermalReceipt(args);
     if (!isNativeApp()) return printWeb(args);
-    const saved = savedPrinter();
+    const saved = loadPrintSettings().autoConnect ? savedPrinter() : null;
     if (saved) return go(saved, args);
     try {
       const devices = await listPrinters();

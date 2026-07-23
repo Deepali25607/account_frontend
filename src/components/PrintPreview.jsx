@@ -17,11 +17,16 @@ export default function PrintPreview({ company, currency, doc, party, kind, paym
 
   const lines = useMemo(() => {
     try {
-      return receiptPreviewLines({ company, currency, doc, party, kind, paymentKey, widthMm, format: ps.thermalFormat });
+      return receiptPreviewLines({
+        company, currency, doc, party, kind, paymentKey, widthMm,
+        format: ps.thermalFormat,
+        charsPerLine: ps.charsPerLine === "auto" ? null : ps.charsPerLine,
+        feedLines: 0, // don't render trailing feed as blank preview lines
+      });
     } catch (e) {
       return [String(e?.message || "Nothing to print")];
     }
-  }, [company, currency, doc, party, kind, paymentKey, widthMm, ps.thermalFormat]);
+  }, [company, currency, doc, party, kind, paymentKey, widthMm, ps.thermalFormat, ps.charsPerLine]);
 
   return (
     <Modal open onClose={onClose} title={`Print ${doc.doc_no}`}>

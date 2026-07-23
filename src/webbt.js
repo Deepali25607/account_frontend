@@ -12,6 +12,8 @@
 // that probes every channel/mode; the user picks the number that printed and
 // that exact channel is remembered for all future receipts.
 
+import { loadPrintSettings } from "./printSettings";
+
 const KEY = "lf_webbt_printer"; // { id, name, channel?: {service, char, mode} }
 
 // Known BLE print channels as [service, write characteristic], tried in this
@@ -62,7 +64,7 @@ export async function pickWebPrinter() {
       optionalServices: SERVICES,
     });
     sessionDevices.set(device.id, device);
-    saveWebPrinter(device);
+    if (loadPrintSettings().rememberPrinter) saveWebPrinter(device);
     return device;
   } catch (e) {
     if (e?.name === "NotFoundError") return null; // user closed the chooser

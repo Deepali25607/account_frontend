@@ -64,6 +64,19 @@ function PageSizeSection({ s, set }) {
   );
 }
 
+/** Labelled checkbox row for the behaviour toggles. */
+function ToggleRow({ label, desc, checked, onChange }) {
+  return (
+    <label className="flex cursor-pointer items-start justify-between gap-3 py-3">
+      <span>
+        <span className="block text-sm font-semibold text-slate-800">{label}</span>
+        <span className="block text-xs text-slate-500">{desc}</span>
+      </span>
+      <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-brand-600" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  );
+}
+
 /** Pill-style option button used for page size and thermal format. */
 function Chip({ active, onClick, children, title }) {
   return (
@@ -246,6 +259,15 @@ export default function PrintSettings() {
               <h3 className="mb-1 font-bold text-slate-800">Available devices</h3>
               <p className="mb-4 text-sm text-slate-500">Bluetooth printers paired with this device. Tap one to connect it.</p>
 
+              {/* connection type — Bluetooth today, USB/Network reserved */}
+              <div className="mb-4 flex flex-wrap gap-2">
+                <Chip active onClick={() => {}} title={native ? "Classic Bluetooth (SPP)" : "Web Bluetooth in Chrome/Edge; classic Bluetooth in the Android app"}>
+                  Bluetooth {native ? "Classic" : ""}
+                </Chip>
+                <span className="cursor-not-allowed rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-300" title="Coming soon">USB</span>
+                <span className="cursor-not-allowed rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-300" title="Coming soon">Network</span>
+              </div>
+
               {!native && !webBt ? (
                 <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 p-3.5 text-sm text-slate-600">
                   <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
@@ -379,6 +401,64 @@ export default function PrintSettings() {
               <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-slate-50 p-3.5 text-sm text-slate-600">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
                 <span>Please select <b>Old</b> format in case Modern doesn't work with your printer — it prints plain text without styling, which older printers handle better.</span>
+              </div>
+            </section>
+
+            {/* ── Advanced output ── */}
+            <section className="card p-5">
+              <h3 className="mb-1 font-bold text-slate-800">Advanced output</h3>
+              <p className="mb-4 text-sm text-slate-500">Leave these at their defaults unless receipts need tuning for your printer.</p>
+
+              <p className="label">Characters per line</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {["auto", 32, 48, 64].map((c) => (
+                  <Chip key={c} active={s.charsPerLine === c} onClick={() => set({ charsPerLine: c })}
+                    title={c === "auto" ? `Derived from the page size (currently ${colsFor(s.widthMm)})` : `${c} columns`}>
+                    {c === "auto" ? `Auto · ${colsFor(s.widthMm)}` : c}
+                  </Chip>
+                ))}
+              </div>
+
+              <p className="label mt-5">Encoding</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {[["cp437", "CP437"], ["cp850", "CP850"], ["utf8", "UTF-8"]].map(([id, label]) => (
+                  <Chip key={id} active={s.encoding === id} onClick={() => set({ encoding: id })}
+                    title={id === "utf8" ? "No codepage command — plain ASCII passthrough" : `Selects codepage ${label} on the printer (Modern format)`}>
+                    {label}
+                  </Chip>
+                ))}
+              </div>
+
+              <p className="label mt-5">Print density</p>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {[1, 2, 3, 4, 5].map((d) => (
+                  <Chip key={d} active={s.density === d} onClick={() => set({ density: d })}
+                    title={d === 3 ? "Printer default (no command sent)" : d < 3 ? "Lighter" : "Darker"}>
+                    {d}
+                  </Chip>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-slate-400">3 = printer default. Only change if prints are too light or too dark; not all printers support it.</p>
+
+              <p className="label mt-5">Feed lines after print</p>
+              <div className="mt-1 flex items-center gap-2 text-sm text-slate-600">
+                <input type="number" min="0" max="8" step="1" value={s.feedLines}
+                  onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) set({ feedLines: Math.max(0, Math.min(8, Math.round(n))) }); }}
+                  className="input w-24 text-center" />
+                <span className="text-slate-400">blank lines fed so the receipt clears the tear bar</span>
+              </div>
+            </section>
+
+            {/* ── Behaviour ── */}
+            <section className="card p-5">
+              <h3 className="mb-1 font-bold text-slate-800">Printer behaviour</h3>
+              <div className="divide-y divide-slate-100">
+                <ToggleRow label="Auto cut" desc="Send the paper-cut command after each receipt (Modern format; ignored by cutterless printers)"
+                  checked={s.autoCut} onChange={(v) => set({ autoCut: v })} />
+                <ToggleRow label="Remember printer" desc="Keep the connected printer saved on this device"
+                  checked={s.rememberPrinter} onChange={(v) => { set({ rememberPrinter: v }); if (!v) { forgetPrinter(); setConnected(null); } }} />
+                <ToggleRow label="Auto connect" desc="Print straight to the remembered printer — turn off to be asked every time"
+                  checked={s.autoConnect} onChange={(v) => set({ autoConnect: v })} />
               </div>
             </section>
           </>

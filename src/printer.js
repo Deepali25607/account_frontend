@@ -21,9 +21,11 @@ export const savedPrinter = () => {
   if (!isNativeApp()) return savedWebPrinter();
   try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; }
 };
-export const savePrinter = (d) => isNativeApp()
-  ? localStorage.setItem(KEY, JSON.stringify({ name: d.name, address: d.address }))
-  : saveWebPrinter(d);
+export const savePrinter = (d) => {
+  if (!loadPrintSettings().rememberPrinter) return; // user opted out of persistence
+  if (isNativeApp()) localStorage.setItem(KEY, JSON.stringify({ name: d.name, address: d.address }));
+  else saveWebPrinter(d);
+};
 export const forgetPrinter = () => isNativeApp() ? localStorage.removeItem(KEY) : forgetWebPrinter();
 
 /** Paired Bluetooth devices as [{name, address}] (Android app only). Rejects
@@ -63,7 +65,13 @@ const toB64 = (bytes) => {
  *  The Modern/Old thermal format from Print Settings applies unless the caller
  *  passes an explicit `format`. */
 export async function printDirect(printer, receiptArgs) {
-  const bytes = buildReceiptEscpos({ format: loadPrintSettings().thermalFormat, ...receiptArgs });
+  const ps = loadPrintSettings();
+  const bytes = buildReceiptEscpos({
+    format: ps.thermalFormat,
+    charsPerLine: ps.charsPerLine === "auto" ? null : ps.charsPerLine,
+    encoding: ps.encoding, density: ps.density, feedLines: ps.feedLines, autoCut: ps.autoCut,
+    ...receiptArgs,
+  });
   if (!bytes || bytes.length < 16) throw new Error("Receipt payload is empty — refusing to print");
   console.debug(`[print] escpos bytes ready: ${bytes.length}, sending via ${isNativeApp() ? "native SPP" : "Web Bluetooth"} to ${printer?.name || printer?.address || printer?.id}`);
   if (isNativeApp()) await ThermalPrinter.print({ address: printer.address, data: toB64(bytes) });

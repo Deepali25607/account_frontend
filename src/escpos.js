@@ -36,8 +36,12 @@ const wrapText = (s, cols) => {
 
 /** Build the full ESC/POS payload for a sale/purchase receipt. Same args as
  *  exportThermalReceipt(). Returns a Uint8Array ready to send to the printer. */
-export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = "sale", paymentKey = "received", widthMm = 80, format = "modern", _trace = null }) {
-  const cols = colsFor(widthMm);
+export function buildReceiptEscpos({
+  company, currency, doc: txn, party, kind = "sale", paymentKey = "received",
+  widthMm = 80, format = "modern", charsPerLine = null, encoding = "cp437",
+  density = 3, feedLines = 4, autoCut = true, _trace = null,
+}) {
+  const cols = Number(charsPerLine) || colsFor(widthMm);
   // "old" is the compatibility mode for printers that mangle styling commands:
   // plain text only — centering via space padding, no bold/double-size/cut.
   const modern = format !== "old";
@@ -69,6 +73,16 @@ export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = 
   };
 
   raw(0x1b, 0x40); // reset
+  if (modern) {
+    // Codepage select (ESC t): 0 = CP437, 2 = CP850. "utf8" sends nothing —
+    // content is already reduced to ASCII (clean()), which every page shares.
+    if (encoding === "cp437") raw(0x1b, 0x74, 0);
+    else if (encoding === "cp850") raw(0x1b, 0x74, 2);
+    // Print density (DC2 # — the control used by common 58/80 mm boards).
+    // Level 3 = printer default: send nothing, maximum compatibility.
+    const d = Math.max(1, Math.min(5, Number(density) || 3));
+    if (d !== 3) raw(0x12, 0x23, (1 << 5) | [7, 13, 19, 25, 31][d - 1]);
+  }
   const co = companyInfo(company);
   align(1);
   bold(true); dbl(true);
@@ -101,12 +115,13 @@ export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = 
   bold(true); lr(due > 0 ? "Balance due" : "Balance", money(due)); bold(false);
   rule();
   align(1); line("Thank you!");
+  const feed = Math.max(0, Math.min(8, Number.isFinite(+feedLines) ? +feedLines : 4));
   if (modern) {
-    raw(0x1b, 0x64, 4);          // feed clear of the tear bar
-    raw(0x1d, 0x56, 0x42, 0x00); // partial cut — harmlessly ignored by cutterless printers
+    if (feed) raw(0x1b, 0x64, feed);           // feed clear of the tear bar
+    if (autoCut) raw(0x1d, 0x56, 0x42, 0x00);  // partial cut — harmlessly ignored by cutterless printers
   } else {
     // Old mode stays pure text to the last byte — some firmware mangles ESC d.
-    line(); line(); line(); line();
+    for (let i = 0; i < feed; i++) line();
   }
   // Refuse to emit a content-free payload (would feed blank paper), and leave
   // an inspectable trace of exactly what the receipt says.
