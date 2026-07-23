@@ -5,7 +5,8 @@ import { Spinner, useToast } from "../ui";
 import { THERMAL_SIZES } from "../pdf";
 import { isNativeApp } from "../files";
 import { loadPrintSettings, savePrintSettings } from "../printSettings";
-import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing, friendlyPrintError, printTestDirect } from "../printer";
+import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing, friendlyPrintError, printTestDirect, printDirect } from "../printer";
+import { useAuth } from "../auth";
 import { webBtSupported, pickWebPrinter, listWebPrinters, testWebPrinter, probePrintChannels, saveWebPrinterChannel, RECONNECT_NEEDED } from "../webbt";
 
 const TYPES = [
@@ -32,6 +33,7 @@ function Chip({ active, onClick, children, title }) {
 
 export default function PrintSettings() {
   const toast = useToast();
+  const { me } = useAuth();
   const [s, setS] = useState(loadPrintSettings);
   const set = (patch) => setS(savePrintSettings(patch));
 
@@ -96,7 +98,7 @@ export default function PrintSettings() {
     toast.success(`Print channel #${r.n} saved — thermal format set to Old (plain text) to match`);
   };
 
-  // App: one-tap plain-text test line over classic Bluetooth.
+  // One-tap plain-text test line to the connected printer.
   const [testingNative, setTestingNative] = useState(false);
   const runNativeTest = async () => {
     setTestingNative(true); setBtError("");
@@ -107,6 +109,31 @@ export default function PrintSettings() {
       setBtError(isPluginMissing(e)
         ? "Direct printing needs the latest app version — update the LedgerFlow app."
         : friendlyPrintError(e));
+    } finally { setTestingNative(false); }
+  };
+
+  // Short sample bill in a specific format — isolates "formatting the printer
+  // can't digest" from connection problems: if the plain test line prints but
+  // the Modern sample doesn't while Old does, pick Old above.
+  const printSample = async (format) => {
+    setTestingNative(true); setBtError("");
+    try {
+      await printDirect(connected, {
+        company: me?.tenant, currency: me?.tenant?.currency,
+        doc: {
+          doc_no: "SAMPLE-001", doc_date: new Date().toISOString().slice(0, 10), doc_type: "sale",
+          subtotal: 118, tax_total: 0, grand_total: 118, received: 118, payment_account: "cash",
+          lines: [
+            { item_name: "Sample Item", qty: 1, unit_price: 100, line_total: 100 },
+            { item_name: "Item With A Much Longer Name", qty: 2, unit_price: 9, line_total: 18 },
+          ],
+        },
+        party: "Format Test", kind: "sale", paymentKey: "received",
+        widthMm: s.widthMm, format,
+      });
+      toast.success(`${format === "old" ? "Old" : "Modern"} sample sent — check the printer`);
+    } catch (e) {
+      setBtError(friendlyPrintError(e));
     } finally { setTestingNative(false); }
   };
 
@@ -232,15 +259,22 @@ export default function PrintSettings() {
                       : "Turn the printer on and tap Connect — your browser will show nearby Bluetooth devices. Works with Bluetooth LE printers; for classic-Bluetooth-only models use the Android app."}
                   </p>
 
-                  {/* App: simple connection test over classic Bluetooth */}
+                  {/* App: connection + format tests over classic Bluetooth */}
                   {native && connected && (
                     <div className="mt-4 rounded-xl border border-slate-200 p-4">
-                      <p className="text-sm font-semibold text-slate-800">Check the connection</p>
-                      <p className="mt-0.5 text-xs text-slate-500">Sends a short test line straight to {connected.name}.</p>
+                      <p className="text-sm font-semibold text-slate-800">Test your printer</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        "Test line" checks the connection with plain text. The sample bills check formatting —
+                        if only the Old sample prints correctly, choose <b>Old</b> under thermal format below.
+                      </p>
                       {testingNative ? (
                         <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Spinner className="h-4 w-4 text-brand-500" /> Sending…</div>
                       ) : (
-                        <button className="btn-ghost btn-sm mt-3" onClick={runNativeTest}><Printer className="h-3.5 w-3.5" /> Test print</button>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button className="btn-ghost btn-sm" onClick={runNativeTest}><Printer className="h-3.5 w-3.5" /> Test line</button>
+                          <button className="btn-ghost btn-sm" onClick={() => printSample("modern")}>Sample bill · Modern</button>
+                          <button className="btn-ghost btn-sm" onClick={() => printSample("old")}>Sample bill · Old</button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -267,7 +301,15 @@ export default function PrintSettings() {
                           {probe.some((r) => r.sent) && <p className="mt-2 text-xs text-slate-400">If none printed, this printer's BLE side can't print — use the Android app (classic Bluetooth) instead.</p>}
                         </div>
                       ) : (
-                        <button className="btn-ghost btn-sm mt-3" onClick={() => runProbe()}><Printer className="h-3.5 w-3.5" /> Test print</button>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button className="btn-ghost btn-sm" onClick={() => runProbe()}><Printer className="h-3.5 w-3.5" /> Test print</button>
+                          {testingNative
+                            ? <span className="flex items-center gap-2 text-sm text-slate-500"><Spinner className="h-4 w-4 text-brand-500" /> Sending…</span>
+                            : <>
+                                <button className="btn-ghost btn-sm" onClick={() => printSample("old")}>Sample bill · Old</button>
+                                <button className="btn-ghost btn-sm" onClick={() => printSample("modern")}>Sample bill · Modern</button>
+                              </>}
+                        </div>
                       )}
                     </div>
                   )}
@@ -281,7 +323,8 @@ export default function PrintSettings() {
               <p className="mb-4 text-sm text-slate-500">Width of your receipt roll. Used as the default receipt size.</p>
               <div className="flex flex-wrap gap-3">
                 {THERMAL_SIZES.map((z) => (
-                  <Chip key={z.mm} active={s.widthMm === z.mm} onClick={() => set({ widthMm: z.mm })} title={`${z.mm} mm roll`}>
+                  <Chip key={z.mm} active={s.widthMm === z.mm} onClick={() => set({ widthMm: z.mm })}
+                    title={`${z.mm} mm roll · ${z.mm <= 58 ? 32 : z.mm <= 80 ? 48 : 64} characters per line`}>
                     {z.label.replace('"', " inch")} <span className={s.widthMm === z.mm ? "text-brand-400" : "text-slate-400"}>· {z.mm} mm</span>
                   </Chip>
                 ))}
