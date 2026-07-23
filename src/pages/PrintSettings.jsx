@@ -5,7 +5,7 @@ import { Spinner, useToast } from "../ui";
 import { THERMAL_SIZES } from "../pdf";
 import { isNativeApp } from "../files";
 import { loadPrintSettings, savePrintSettings } from "../printSettings";
-import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing } from "../printer";
+import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing, friendlyPrintError } from "../printer";
 import { webBtSupported, pickWebPrinter, listWebPrinters, testWebPrinter, probePrintChannels, saveWebPrinterChannel, RECONNECT_NEEDED } from "../webbt";
 
 const TYPES = [
@@ -59,7 +59,7 @@ export default function PrintSettings() {
       setDevices([]);
       setBtError(native && isPluginMissing(e)
         ? "Direct printing needs the latest app version — update the LedgerFlow app."
-        : String(e?.message || e));
+        : friendlyPrintError(e));
     } finally { setScanning(false); }
   }, [native]);
 
@@ -83,7 +83,7 @@ export default function PrintSettings() {
         const d = await pickWebPrinter();
         if (d) return runProbe(d);
       } else {
-        setBtError(String(e?.message || e));
+        setBtError(friendlyPrintError(e));
       }
     }
   };
@@ -108,11 +108,12 @@ export default function PrintSettings() {
         await testWebPrinter(d);
         toast.success(`${d.name || "Printer"} connected — receipts will print to it directly`);
       } catch (e) {
-        toast.error(`${d.name || "Printer"}: ${e?.message || e}`);
+        const friendly = friendlyPrintError(e);
+        if (friendly) toast.error(`${d.name || "Printer"}: ${friendly}`);
       }
       refresh();
     } catch (e) {
-      setBtError(String(e?.message || e));
+      setBtError(friendlyPrintError(e));
     }
   };
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Modal, useToast } from "../ui";
 import { exportThermalReceipt } from "../pdf";
-import { canPrintDirect, savedPrinter, savePrinter, forgetPrinter, listPrinters, printDirect, isPluginMissing } from "../printer";
+import { canPrintDirect, savedPrinter, savePrinter, forgetPrinter, listPrinters, printDirect, isPluginMissing, friendlyPrintError } from "../printer";
 import { isNativeApp } from "../files";
 import { pickWebPrinter, RECONNECT_NEEDED } from "../webbt";
 
@@ -32,7 +32,8 @@ export default function useThermalPrint() {
         toast.error("Direct printing needs the latest app version — opening share instead");
         exportThermalReceipt(args);
       } else {
-        toast.error(`${printer.name}: ${e?.message || e}`);
+        const friendly = friendlyPrintError(e);
+        if (friendly) toast.error(`${printer.name}: ${friendly}`);
       }
     }
   };
@@ -59,7 +60,9 @@ export default function useThermalPrint() {
           return;
         } catch (e2) { e = e2; }
       }
-      toast.error(`Bluetooth print failed: ${e?.message || e} — opening PDF instead`);
+      const friendly = friendlyPrintError(e);
+      if (!friendly) return; // user cancelled — nothing to report
+      toast.error(`${friendly} — opening the PDF instead`);
       exportThermalReceipt(args);
     }
   };
@@ -78,7 +81,7 @@ export default function useThermalPrint() {
       setPick({ devices, resume: (d) => go(d, args) });
     } catch (e) {
       if (isPluginMissing(e)) { exportThermalReceipt(args); return; } // old APK — share sheet still works
-      toast.error(String(e?.message || e));
+      toast.error(friendlyPrintError(e) || "Printing failed");
     }
   };
 

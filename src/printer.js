@@ -37,6 +37,21 @@ export async function listPrinters() {
 // binary — that surfaces as Capacitor's "not implemented" rejection.
 export const isPluginMissing = (e) => /not implemented|plugin/i.test(String(e?.message || e));
 
+/** Map raw transport errors (Android socket, Web Bluetooth GATT) to a short,
+ *  user-actionable message. Returns "" for user-cancelled actions. */
+export function friendlyPrintError(e) {
+  const msg = String(e?.message || e || "");
+  if (/cancel/i.test(msg)) return "";
+  if (/permission/i.test(msg)) return isNativeApp()
+    ? "Bluetooth permission was denied — allow it for LedgerFlow in Android Settings"
+    : "Bluetooth access was blocked — allow it in your browser's site settings";
+  if (/turned off|not available/i.test(msg)) return "Bluetooth is off — turn it on and try again";
+  if (/not implemented|plugin/i.test(msg)) return "Direct printing needs the latest LedgerFlow app version";
+  if (/writable|characteristic|GATT/i.test(msg)) return "This printer can't print over browser Bluetooth — use the Android app, or print the PDF";
+  if (/could not reach|socket|timeout|connect|range|network/i.test(msg)) return "Couldn't reach the printer — make sure it's switched on and nearby";
+  return msg || "Printing failed";
+}
+
 const toB64 = (bytes) => {
   let s = "";
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
