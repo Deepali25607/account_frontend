@@ -67,9 +67,20 @@ export async function buildReceiptRaster(args) {
     rows.push({ rb, blank: !any });
   }
 
+  // Keep short blank runs (inter-line gaps) inside the bitmap — ESC J feed
+  // units vary between firmwares, and converting small gaps to feeds squashed
+  // lines together on the 4B-2043PB. Only long runs (margins) become feeds.
+  const MIN_FEED_RUN = 32;
+  for (let y0 = 0; y0 < height; ) {
+    if (!rows[y0].blank) { y0++; continue; }
+    let end = y0;
+    while (end < height && rows[end].blank) end++;
+    if (end - y0 < MIN_FEED_RUN) for (let r = y0; r < end; r++) rows[r].blank = false;
+    y0 = end;
+  }
+
   // Emit: content rows as GS v 0 bands (≤128 rows — suits tiny buffers),
-  // blank runs as ESC J dot-feeds. Skipping empty rows cuts the payload
-  // roughly a third, which matters at the printer's small receive buffer.
+  // long blank runs as ESC J dot-feeds.
   const out = [0x1b, 0x40]; // initialize
   let y = 0;
   while (y < height) {
