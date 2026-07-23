@@ -15,35 +15,40 @@ const dotsFor = (mm) => (mm <= 58 ? 384 : mm <= 80 ? 576 : mm <= 104 ? 832 : Mat
 export async function buildReceiptRaster(args) {
   const { widthMm = 58, feedLines = 4, autoCut = true } = args;
   // Text layout comes from the same engine as the preview — "old" mode gives
-  // pure text with space-centering, exactly what we want to draw.
-  const lines = receiptPreviewLines({ ...args, format: "old", feedLines: 0 });
+  // pure text with space-centering. _unicode keeps Hindi/₹/etc. intact: the
+  // canvas draws every script, unlike the printer's text mode.
+  const lines = receiptPreviewLines({ ...args, format: "old", feedLines: 0, _unicode: true });
   const width = dotsFor(widthMm);
   const cols = Number(args.charsPerLine) || colsFor(widthMm);
-
   const charW = width / cols;
-  const fontSize = Math.floor(charW * 1.7); // Courier glyphs are ~0.6 em wide
-  const lineH = Math.ceil(fontSize * 1.25);
-  const margin = 8;
-  const height = lines.length * lineH + margin * 2;
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const fontFor = (px) => `bold ${px}px "Courier New", Consolas, monospace`;
+  // Calibrate the font size so one monospace advance equals exactly one grid
+  // column — whole lines can then be drawn in a single run (crisper than
+  // per-char placement) with columns still aligned.
+  let fontSize = Math.floor(charW * 1.7);
+  ctx.font = fontFor(fontSize);
+  const adv = ctx.measureText("M").width || charW * 0.6;
+  fontSize = Math.max(8, Math.floor(fontSize * (charW / adv)));
+  const lineH = Math.ceil(fontSize * 1.3);
+  const marginTop = 4, marginBottom = 32; // tight header, breathing room at the tear
+  const height = lines.length * lineH + marginTop + marginBottom;
+
+  canvas.width = width;
+  canvas.height = height; // (re)sizing resets context state — set styles after
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#000";
-  ctx.font = `bold ${fontSize}px "Courier New", monospace`; // bold = darker dots on thermal
+  ctx.font = fontFor(fontSize);
   ctx.textBaseline = "top";
-  // Char-by-char placement keeps the column grid exact regardless of font metrics.
-  lines.forEach((ln, row) => {
-    const y = margin + row * lineH;
-    for (let i = 0; i < ln.length; i++) {
-      if (ln[i] !== " ") ctx.fillText(ln[i], Math.round(i * charW + charW * 0.08), y);
-    }
-  });
+  lines.forEach((ln, row) => { if (ln.trim()) ctx.fillText(ln, 0, marginTop + row * lineH); });
 
   // Threshold to 1-bit and emit GS v 0 bands (small bands suit tiny buffers).
+  // 110 keeps solid strokes and drops the grey anti-aliasing fringe that
+  // otherwise prints as speckled dots.
+  const THRESHOLD = 110;
   const img = ctx.getImageData(0, 0, width, height).data;
   const widthBytes = width / 8;
   const out = [0x1b, 0x40]; // initialize
@@ -57,7 +62,7 @@ export async function buildReceiptRaster(args) {
         for (let bit = 0; bit < 8; bit++) {
           const p = (y * width + bx * 8 + bit) * 4;
           const lum = 0.299 * img[p] + 0.587 * img[p + 1] + 0.114 * img[p + 2];
-          if (lum < 160) b |= 0x80 >> bit;
+          if (lum < THRESHOLD) b |= 0x80 >> bit;
         }
         out.push(b);
       }

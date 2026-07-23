@@ -39,8 +39,11 @@ const wrapText = (s, cols) => {
 export function buildReceiptEscpos({
   company, currency, doc: txn, party, kind = "sale", paymentKey = "received",
   widthMm = 80, format = "modern", charsPerLine = null, encoding = "cp437",
-  density = 3, feedLines = 4, autoCut = true, _trace = null,
+  density = 3, feedLines = 4, autoCut = true, _trace = null, _unicode = false,
 }) {
+  // _unicode keeps non-ASCII text (used by the raster/image renderer, which
+  // draws glyphs itself); byte output is meaningless in that mode.
+  const cl = _unicode ? (s) => String(s ?? "") : clean;
   const cols = Number(charsPerLine) || colsFor(widthMm);
   // "old" is the compatibility mode for printers that mangle styling commands:
   // plain text only — centering via space padding, no bold/double-size/cut.
@@ -55,7 +58,7 @@ export function buildReceiptEscpos({
   let curAlign = 0; // tracked so "old" mode can center by padding instead of ESC a
   const raw = (...b) => { out.push(...b); };
   const line = (s = "") => {
-    let t = clean(s);
+    let t = cl(s);
     if (!modern && curAlign === 1 && t.length < cols) t = " ".repeat(Math.floor((cols - t.length) / 2)) + t;
     textLines.push(t);
     for (let i = 0; i < t.length; i++) out.push(t.charCodeAt(i));
@@ -65,9 +68,9 @@ export function buildReceiptEscpos({
   const bold = (on) => { if (modern) raw(0x1b, 0x45, on ? 1 : 0); };
   const dbl = (on) => { if (modern) raw(0x1d, 0x21, on ? 0x11 : 0x00); }; // double width+height
   const rule = () => line("-".repeat(cols));
-  const wrap = (s) => wrapText(clean(s), cols).forEach((ln) => line(ln));
+  const wrap = (s) => wrapText(cl(s), cols).forEach((ln) => line(ln));
   const lr = (l, r) => {
-    l = clean(l); r = clean(r);
+    l = cl(l); r = cl(r);
     if (l.length + r.length + 1 > cols) { wrap(l); line(" ".repeat(Math.max(0, cols - r.length)) + r); }
     else line(l + " ".repeat(cols - l.length - r.length) + r);
   };
@@ -86,7 +89,7 @@ export function buildReceiptEscpos({
   const co = companyInfo(company);
   align(1);
   bold(true); dbl(true);
-  wrapText(clean(co.name || "LedgerFlow"), modern ? Math.floor(cols / 2) : cols).forEach((ln) => line(ln)); // double width halves the columns
+  wrapText(cl(co.name || "LedgerFlow"), modern ? Math.floor(cols / 2) : cols).forEach((ln) => line(ln)); // double width halves the columns
   dbl(false); bold(false);
   co.lines.forEach(wrap);
   bold(true); line(title); bold(false);

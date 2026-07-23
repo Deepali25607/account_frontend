@@ -23,6 +23,7 @@ export default function PrintPreview({ company, currency, doc, party, kind, paym
         format: ps.thermalFormat === "modern" ? "modern" : "old",
         charsPerLine: ps.charsPerLine === "auto" ? null : ps.charsPerLine,
         feedLines: 0, // don't render trailing feed as blank preview lines
+        _unicode: ps.thermalFormat === "image", // image mode prints any script
       });
     } catch (e) {
       return [String(e?.message || "Nothing to print")];
