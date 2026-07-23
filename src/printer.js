@@ -67,3 +67,12 @@ export async function printDirect(printer, receiptArgs) {
   if (isNativeApp()) await ThermalPrinter.print({ address: printer.address, data: toB64(bytes) });
   else await printWebBt(printer, bytes);
 }
+
+/** Plain-text test line straight to the printer — used by Print Settings to
+ *  verify the connection without involving a bill. Throws on failure. */
+export async function printTestDirect(printer) {
+  const text = "\x1b@LedgerFlow test print\nIf you can read this,\ndirect printing works!\n\n\n\n";
+  const bytes = Uint8Array.from(text, (c) => c.charCodeAt(0));
+  if (isNativeApp()) await ThermalPrinter.print({ address: printer.address, data: toB64(bytes) });
+  else await printWebBt(printer, bytes);
+}

@@ -5,7 +5,7 @@ import { Spinner, useToast } from "../ui";
 import { THERMAL_SIZES } from "../pdf";
 import { isNativeApp } from "../files";
 import { loadPrintSettings, savePrintSettings } from "../printSettings";
-import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing, friendlyPrintError } from "../printer";
+import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing, friendlyPrintError, printTestDirect } from "../printer";
 import { webBtSupported, pickWebPrinter, listWebPrinters, testWebPrinter, probePrintChannels, saveWebPrinterChannel, RECONNECT_NEEDED } from "../webbt";
 
 const TYPES = [
@@ -94,6 +94,20 @@ export default function PrintSettings() {
     set({ thermalFormat: "old" });
     setProbe(null);
     toast.success(`Print channel #${r.n} saved — thermal format set to Old (plain text) to match`);
+  };
+
+  // App: one-tap plain-text test line over classic Bluetooth.
+  const [testingNative, setTestingNative] = useState(false);
+  const runNativeTest = async () => {
+    setTestingNative(true); setBtError("");
+    try {
+      await printTestDirect(connected);
+      toast.success("Test line sent — check the printer");
+    } catch (e) {
+      setBtError(isPluginMissing(e)
+        ? "Direct printing needs the latest app version — update the LedgerFlow app."
+        : friendlyPrintError(e));
+    } finally { setTestingNative(false); }
   };
 
   // Browser: open the Bluetooth chooser, remember the pick, and try a test
@@ -217,6 +231,19 @@ export default function PrintSettings() {
                       ? "New printer? Pair it in Android Bluetooth settings first — it will then appear in this list."
                       : "Turn the printer on and tap Connect — your browser will show nearby Bluetooth devices. Works with Bluetooth LE printers; for classic-Bluetooth-only models use the Android app."}
                   </p>
+
+                  {/* App: simple connection test over classic Bluetooth */}
+                  {native && connected && (
+                    <div className="mt-4 rounded-xl border border-slate-200 p-4">
+                      <p className="text-sm font-semibold text-slate-800">Check the connection</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Sends a short test line straight to {connected.name}.</p>
+                      {testingNative ? (
+                        <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Spinner className="h-4 w-4 text-brand-500" /> Sending…</div>
+                      ) : (
+                        <button className="btn-ghost btn-sm mt-3" onClick={runNativeTest}><Printer className="h-3.5 w-3.5" /> Test print</button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Browser only: probe for the channel that actually reaches the print head */}
                   {!native && connected && (

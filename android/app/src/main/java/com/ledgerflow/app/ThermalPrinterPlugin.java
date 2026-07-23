@@ -103,8 +103,7 @@ public class ThermalPrinterPlugin extends Plugin {
             try {
                 BluetoothDevice device = ad.getRemoteDevice(address);
                 try { ad.cancelDiscovery(); } catch (SecurityException ignored) {}
-                socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-                socket.connect();
+                socket = connectSocket(device);
                 OutputStream out = socket.getOutputStream();
                 out.write(bytes);
                 out.flush();
@@ -118,5 +117,34 @@ public class ThermalPrinterPlugin extends Plugin {
                 if (socket != null) { try { socket.close(); } catch (Exception ignored) {} }
             }
         }).start();
+    }
+
+    /**
+     * Open an RFCOMM link, working around budget-printer firmware: the standard
+     * secure SPP connect fails on many clones, so fall back to an insecure
+     * socket, then to the reflection channel-1 socket every vendor print app
+     * uses as a last resort.
+     */
+    private BluetoothSocket connectSocket(BluetoothDevice device) throws Exception {
+        Exception last = null;
+        try {
+            BluetoothSocket s = device.createRfcommSocketToServiceRecord(SPP_UUID);
+            s.connect();
+            return s;
+        } catch (Exception e) { last = e; }
+        Thread.sleep(250); // give the printer's BT stack a beat between attempts
+        try {
+            BluetoothSocket s = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+            s.connect();
+            return s;
+        } catch (Exception e) { last = e; }
+        Thread.sleep(250);
+        try {
+            BluetoothSocket s = (BluetoothSocket) device.getClass()
+                .getMethod("createRfcommSocket", int.class).invoke(device, 1);
+            s.connect();
+            return s;
+        } catch (Exception e) { last = e; }
+        throw last;
     }
 }
