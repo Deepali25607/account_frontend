@@ -156,11 +156,23 @@ public class ThermalPrinterPlugin extends Plugin {
                 OutputStream out = socket.getOutputStream();
                 Log.i(TAG, "output stream created");
                 logHex(bytes);
-                out.write(bytes);
-                out.flush();
-                Log.i(TAG, "wrote " + bytes.length + " bytes, flush complete");
-                Thread.sleep(1000); // let the printer drain its buffer before the link drops
-                Log.i(TAG, "drain wait done");
+                // Paced chunked writes: raster receipts are tens of KB while the
+                // printer's receive buffer is a few KB — one giant write overruns
+                // it (bytes drop mid-image → garbage glyphs + desync). Small
+                // flushed chunks let RFCOMM flow control pace us to print speed.
+                final int CHUNK = 1024;
+                for (int off = 0; off < bytes.length; off += CHUNK) {
+                    int n = Math.min(CHUNK, bytes.length - off);
+                    out.write(bytes, off, n);
+                    out.flush();
+                    Thread.sleep(15);
+                }
+                Log.i(TAG, "wrote " + bytes.length + " bytes in paced chunks, flush complete");
+                // Drain wait scales with payload so big images finish printing
+                // before the link drops (close discards undelivered bytes).
+                long drain = Math.min(8000, 400 + bytes.length / 8);
+                Thread.sleep(drain);
+                Log.i(TAG, "drain wait (" + drain + " ms) done");
                 JSObject ret = new JSObject();
                 ret.put("bytesWritten", bytes.length);
                 call.resolve(ret);
@@ -177,16 +189,19 @@ public class ThermalPrinterPlugin extends Plugin {
         }).start();
     }
 
-    /** Hex-dump the full payload in 32-byte rows (logcat-friendly). */
+    /** Hex-dump the payload head in 32-byte rows (capped — raster payloads are
+     *  tens of KB and would flood logcat). */
     private void logHex(byte[] bytes) {
+        int max = Math.min(bytes.length, 256);
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < bytes.length; i++) {
+        for (int i = 0; i < max; i++) {
             sb.append(String.format("%02X ", bytes[i]));
-            if ((i + 1) % 32 == 0 || i == bytes.length - 1) {
+            if ((i + 1) % 32 == 0 || i == max - 1) {
                 Log.d(TAG, "payload[" + (i / 32) * 32 + "]: " + sb);
                 sb.setLength(0);
             }
         }
+        if (bytes.length > max) Log.d(TAG, "payload: … " + (bytes.length - max) + " more bytes");
     }
 
     /**

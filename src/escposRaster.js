@@ -45,27 +45,44 @@ export async function buildReceiptRaster(args) {
   ctx.textBaseline = "top";
   lines.forEach((ln, row) => { if (ln.trim()) ctx.fillText(ln, 0, marginTop + row * lineH); });
 
-  // Threshold to 1-bit and emit GS v 0 bands (small bands suit tiny buffers).
-  // 110 keeps solid strokes and drops the grey anti-aliasing fringe that
-  // otherwise prints as speckled dots.
+  // Threshold to 1-bit. 110 keeps solid strokes and drops the grey
+  // anti-aliasing fringe that otherwise prints as speckled dots.
   const THRESHOLD = 110;
   const img = ctx.getImageData(0, 0, width, height).data;
   const widthBytes = width / 8;
-  const out = [0x1b, 0x40]; // initialize
-  const BAND = 128;
-  for (let y0 = 0; y0 < height; y0 += BAND) {
-    const rows = Math.min(BAND, height - y0);
-    out.push(0x1d, 0x76, 0x30, 0x00, widthBytes & 0xff, (widthBytes >> 8) & 0xff, rows & 0xff, (rows >> 8) & 0xff);
-    for (let y = y0; y < y0 + rows; y++) {
-      for (let bx = 0; bx < widthBytes; bx++) {
-        let b = 0;
-        for (let bit = 0; bit < 8; bit++) {
-          const p = (y * width + bx * 8 + bit) * 4;
-          const lum = 0.299 * img[p] + 0.587 * img[p + 1] + 0.114 * img[p + 2];
-          if (lum < THRESHOLD) b |= 0x80 >> bit;
-        }
-        out.push(b);
+  const rows = [];
+  for (let y = 0; y < height; y++) {
+    const rb = new Uint8Array(widthBytes);
+    let any = 0;
+    for (let bx = 0; bx < widthBytes; bx++) {
+      let b = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const p = (y * width + bx * 8 + bit) * 4;
+        const lum = 0.299 * img[p] + 0.587 * img[p + 1] + 0.114 * img[p + 2];
+        if (lum < THRESHOLD) b |= 0x80 >> bit;
       }
+      rb[bx] = b;
+      any |= b;
+    }
+    rows.push({ rb, blank: !any });
+  }
+
+  // Emit: content rows as GS v 0 bands (≤128 rows — suits tiny buffers),
+  // blank runs as ESC J dot-feeds. Skipping empty rows cuts the payload
+  // roughly a third, which matters at the printer's small receive buffer.
+  const out = [0x1b, 0x40]; // initialize
+  let y = 0;
+  while (y < height) {
+    if (rows[y].blank) {
+      let n = 0;
+      while (y < height && rows[y].blank) { y++; n++; }
+      while (n > 0) { const f = Math.min(255, n); out.push(0x1b, 0x4a, f); n -= f; } // ESC J f — feed f dots
+    } else {
+      const start = y;
+      let n = 0;
+      while (y < height && !rows[y].blank && n < 128) { y++; n++; }
+      out.push(0x1d, 0x76, 0x30, 0x00, widthBytes & 0xff, (widthBytes >> 8) & 0xff, n & 0xff, (n >> 8) & 0xff);
+      for (let r = start; r < y; r++) out.push(...rows[r].rb);
     }
   }
   const feed = Math.max(0, Math.min(8, Number.isFinite(+feedLines) ? +feedLines : 4));
