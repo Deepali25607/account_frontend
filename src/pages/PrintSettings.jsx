@@ -3,8 +3,10 @@ import { Printer, Bluetooth, Check, RefreshCw, Info, Smartphone } from "lucide-r
 import PageHead from "../components/PageHead";
 import { Spinner, useToast } from "../ui";
 import { THERMAL_SIZES } from "../pdf";
+import { isNativeApp } from "../files";
 import { loadPrintSettings, savePrintSettings } from "../printSettings";
-import { canPrintDirect, savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing } from "../printer";
+import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing } from "../printer";
+import { webBtSupported, pickWebPrinter, listWebPrinters, testWebPrinter } from "../webbt";
 
 const TYPES = [
   { id: "regular", label: "Regular printer", desc: "A4 or A5 size — system print dialog", icon: Printer },
@@ -33,8 +35,10 @@ export default function PrintSettings() {
   const [s, setS] = useState(loadPrintSettings);
   const set = (patch) => setS(savePrintSettings(patch));
 
-  // Bluetooth device management — only possible inside the Android app.
-  const native = canPrintDirect();
+  // Bluetooth device management: native plugin in the Android app, Web
+  // Bluetooth (BLE) in Chrome/Edge, guidance elsewhere.
+  const native = isNativeApp();
+  const webBt = !native && webBtSupported();
   const [connected, setConnected] = useState(savedPrinter);
   const [devices, setDevices] = useState(null); // null = not loaded yet
   const [scanning, setScanning] = useState(false);
@@ -43,19 +47,46 @@ export default function PrintSettings() {
   const refresh = useCallback(async () => {
     setScanning(true); setBtError("");
     try {
-      setDevices(await listPrinters());
+      if (native) {
+        setDevices(await listPrinters());
+      } else {
+        // Previously authorised Web Bluetooth devices (Chrome's getDevices —
+        // returns null where the API is unavailable; the chooser still works).
+        const known = await listWebPrinters();
+        setDevices(known ? known.map((d) => ({ name: d.name || "Bluetooth printer", id: d.id })) : []);
+      }
     } catch (e) {
       setDevices([]);
-      setBtError(isPluginMissing(e)
+      setBtError(native && isPluginMissing(e)
         ? "Direct printing needs the latest app version — update the LedgerFlow app."
         : String(e?.message || e));
     } finally { setScanning(false); }
-  }, []);
+  }, [native]);
 
-  useEffect(() => { if (native && s.printerType === "thermal") refresh(); }, [native, s.printerType, refresh]);
+  useEffect(() => { if ((native || webBt) && s.printerType === "thermal") refresh(); }, [native, webBt, s.printerType, refresh]);
 
   const connect = (d) => { savePrinter(d); setConnected(d); toast.success(`${d.name} connected — receipts will print to it directly`); };
   const forget = () => { forgetPrinter(); setConnected(null); toast.success("Printer disconnected — the next print will ask which one to use"); };
+
+  // Browser: open the Bluetooth chooser, remember the pick, and try a test
+  // connection so unsupported (classic-only) printers are flagged right away.
+  const connectWeb = async () => {
+    setBtError("");
+    try {
+      const d = await pickWebPrinter();
+      if (!d) return; // chooser cancelled
+      setConnected({ id: d.id, name: d.name || "Bluetooth printer" });
+      try {
+        await testWebPrinter(d);
+        toast.success(`${d.name || "Printer"} connected — receipts will print to it directly`);
+      } catch (e) {
+        toast.error(`${d.name || "Printer"}: ${e?.message || e}`);
+      }
+      refresh();
+    } catch (e) {
+      setBtError(String(e?.message || e));
+    }
+  };
 
   return (
     <>
@@ -100,10 +131,10 @@ export default function PrintSettings() {
               <h3 className="mb-1 font-bold text-slate-800">Available devices</h3>
               <p className="mb-4 text-sm text-slate-500">Bluetooth printers paired with this device. Tap one to connect it.</p>
 
-              {!native ? (
+              {!native && !webBt ? (
                 <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 p-3.5 text-sm text-slate-600">
                   <Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                  <span>Direct Bluetooth printing works in the <b>LedgerFlow Android app</b>. On this device, thermal receipts open as a PDF you can print or share instead.</span>
+                  <span>This browser doesn't support Bluetooth. Use <b>Chrome or Edge</b> to connect a printer here, or the <b>LedgerFlow Android app</b> — thermal receipts on this device open as a PDF you can print or share instead.</span>
                 </div>
               ) : (
                 <>
@@ -114,36 +145,49 @@ export default function PrintSettings() {
                   )}
 
                   {devices === null || scanning ? (
-                    <div className="flex items-center gap-2 py-3 text-sm text-slate-500"><Spinner className="h-4 w-4 text-brand-500" /> Looking for paired devices…</div>
-                  ) : devices.length === 0 && !btError ? (
-                    <p className="py-2 text-sm text-slate-500">No paired Bluetooth device found.</p>
-                  ) : devices.length > 0 && (
-                    <div className="overflow-hidden rounded-xl border border-slate-200">
-                      {devices.map((d) => {
-                        const isConnected = connected?.address === d.address;
-                        return (
-                          <button key={d.address} type="button" onClick={() => !isConnected && connect(d)}
-                            className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50">
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm font-semibold text-slate-800">{d.name || "Unknown device"}</span>
-                              <span className="block text-xs text-slate-400">{d.address}</span>
-                            </span>
-                            {isConnected
-                              ? <span className="text-sm font-semibold text-emerald-600">Connected</span>
-                              : <span className="text-sm font-medium text-brand-600">Connect</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                    <div className="flex items-center gap-2 py-3 text-sm text-slate-500"><Spinner className="h-4 w-4 text-brand-500" /> Looking for devices…</div>
+                  ) : (() => {
+                    // In browsers without getDevices() the list comes back empty —
+                    // still show the remembered printer so "Connected" is visible.
+                    const list = [...devices];
+                    const idOf = (d) => native ? d.address : d.id;
+                    if (connected && !list.some((d) => idOf(d) === idOf(connected))) list.unshift(connected);
+                    return list.length === 0 ? (
+                      !btError && <p className="py-2 text-sm text-slate-500">No printer connected yet.</p>
+                    ) : (
+                      <div className="overflow-hidden rounded-xl border border-slate-200">
+                        {list.map((d) => {
+                          const isConnected = connected && idOf(connected) === idOf(d);
+                          return (
+                            <button key={idOf(d)} type="button" onClick={() => !isConnected && connect(d)}
+                              className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50">
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-slate-800">{d.name || "Unknown device"}</span>
+                                {native && <span className="block text-xs text-slate-400">{d.address}</span>}
+                              </span>
+                              {isConnected
+                                ? <span className="text-sm font-semibold text-emerald-600">Connected</span>
+                                : <span className="text-sm font-medium text-brand-600">Connect</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
 
                   <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <button className="btn-ghost btn-sm" onClick={refresh} disabled={scanning}>
-                      <RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} /> Connect another device
+                    <button className="btn-ghost btn-sm" onClick={native ? refresh : connectWeb} disabled={scanning}>
+                      {native
+                        ? <><RefreshCw className={`h-3.5 w-3.5 ${scanning ? "animate-spin" : ""}`} /> Connect another device</>
+                        : <><Bluetooth className="h-3.5 w-3.5" /> Connect another device</>}
                     </button>
                     {connected && <button className="btn-ghost btn-sm" onClick={forget}>Disconnect {connected.name}</button>}
                   </div>
-                  <p className="mt-3 text-xs text-slate-400">New printer? Pair it in Android Bluetooth settings first — it will then appear in this list.</p>
+                  <p className="mt-3 text-xs text-slate-400">
+                    {native
+                      ? "New printer? Pair it in Android Bluetooth settings first — it will then appear in this list."
+                      : "Turn the printer on and tap Connect — your browser will show nearby Bluetooth devices. Works with Bluetooth LE printers; for classic-Bluetooth-only models use the Android app."}
+                  </p>
                 </>
               )}
             </section>

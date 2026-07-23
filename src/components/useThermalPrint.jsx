@@ -2,14 +2,18 @@ import { useState } from "react";
 import { Modal, useToast } from "../ui";
 import { exportThermalReceipt } from "../pdf";
 import { canPrintDirect, savedPrinter, savePrinter, forgetPrinter, listPrinters, printDirect, isPluginMissing } from "../printer";
+import { isNativeApp } from "../files";
+import { pickWebPrinter, RECONNECT_NEEDED } from "../webbt";
 
 /**
  * Thermal printing with one-tap direct Bluetooth output.
  *
  * In the Android app the receipt goes straight to the remembered Bluetooth
  * printer as ESC/POS bytes — no share sheet, no printer app. The first print
- * shows a one-time picker of paired devices. Everywhere else (and on APKs that
- * predate the native plugin) it falls back to the PDF share/print flow.
+ * shows a one-time picker of paired devices. In Chrome/Edge the same happens
+ * over Web Bluetooth (the browser shows its own device chooser). Everywhere
+ * else (and on APKs that predate the native plugin) it falls back to the PDF
+ * share/print flow.
  *
  * Usage: const { printThermal, printerPicker, changePrinter } = useThermalPrint();
  * Call printThermal(args) with the same args as exportThermalReceipt(), and
@@ -33,8 +37,31 @@ export default function useThermalPrint() {
     }
   };
 
+  // Browser path (Web Bluetooth). A saved device id may not be resolvable in
+  // this session (e.g. getDevices unsupported) — re-open the chooser once.
+  const printWeb = async (args, retried = false) => {
+    let target = savedPrinter();
+    try {
+      if (!target) {
+        target = await pickWebPrinter(); // browser's own device chooser
+        if (!target) return;             // user cancelled
+      }
+      await printDirect(target, args);
+      toast.success(`Receipt sent to ${target.name || "printer"}`);
+    } catch (e) {
+      if (String(e?.message) === RECONNECT_NEEDED && !retried) {
+        const d = await pickWebPrinter();
+        if (!d) return;
+        return printWeb(args, true);
+      }
+      toast.error(`Bluetooth print failed: ${e?.message || e} — opening PDF instead`);
+      exportThermalReceipt(args);
+    }
+  };
+
   const printThermal = async (args) => {
     if (!canPrintDirect()) return exportThermalReceipt(args);
+    if (!isNativeApp()) return printWeb(args);
     const saved = savedPrinter();
     if (saved) return go(saved, args);
     try {
