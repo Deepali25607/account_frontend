@@ -79,8 +79,11 @@ export async function buildReceiptRaster(args) {
     y0 = end;
   }
 
-  // Emit: content rows as GS v 0 bands (≤128 rows — suits tiny buffers),
-  // long blank runs as ESC J dot-feeds.
+  // Emit: content rows as large GS v 0 bands, long blank runs as ESC J
+  // dot-feeds. Big bands matter for speed — every band boundary makes the
+  // motor stop and restart, which is what crawls; long bands print in one
+  // continuous stride and ESC J fast-feeds the empty stretches.
+  const BAND_MAX = 240;
   const out = [0x1b, 0x40]; // initialize
   let y = 0;
   while (y < height) {
@@ -91,7 +94,7 @@ export async function buildReceiptRaster(args) {
     } else {
       const start = y;
       let n = 0;
-      while (y < height && !rows[y].blank && n < 128) { y++; n++; }
+      while (y < height && !rows[y].blank && n < BAND_MAX) { y++; n++; }
       out.push(0x1d, 0x76, 0x30, 0x00, widthBytes & 0xff, (widthBytes >> 8) & 0xff, n & 0xff, (n >> 8) & 0xff);
       for (let r = start; r < y; r++) out.push(...rows[r].rb);
     }
