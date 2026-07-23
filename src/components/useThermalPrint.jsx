@@ -38,8 +38,9 @@ export default function useThermalPrint() {
   };
 
   // Browser path (Web Bluetooth). A saved device id may not be resolvable in
-  // this session (e.g. getDevices unsupported) — re-open the chooser once.
-  const printWeb = async (args, retried = false) => {
+  // this session (e.g. after a reload without getDevices support) — re-open
+  // the chooser and print to the freshly picked device.
+  const printWeb = async (args) => {
     let target = savedPrinter();
     try {
       if (!target) {
@@ -49,10 +50,14 @@ export default function useThermalPrint() {
       await printDirect(target, args);
       toast.success(`Receipt sent to ${target.name || "printer"}`);
     } catch (e) {
-      if (String(e?.message) === RECONNECT_NEEDED && !retried) {
+      if (String(e?.message) === RECONNECT_NEEDED) {
         const d = await pickWebPrinter();
         if (!d) return;
-        return printWeb(args, true);
+        try {
+          await printDirect(d, args); // use the live device, not the saved id
+          toast.success(`Receipt sent to ${d.name || "printer"}`);
+          return;
+        } catch (e2) { e = e2; }
       }
       toast.error(`Bluetooth print failed: ${e?.message || e} — opening PDF instead`);
       exportThermalReceipt(args);

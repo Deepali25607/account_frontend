@@ -31,6 +31,12 @@ export const forgetWebPrinter = () => localStorage.removeItem(KEY);
 // the caller should show the chooser again (needs a user gesture).
 export const RECONNECT_NEEDED = "webbt-reconnect-needed";
 
+// Live BluetoothDevice objects seen this session (chooser picks + getDevices
+// results), keyed by id. localStorage only holds {id, name} — without this,
+// printing after connecting in Print Settings would depend on getDevices(),
+// which not every browser exposes.
+const sessionDevices = new Map();
+
 /** Browser device chooser (must be called from a user gesture, e.g. a click).
  *  Returns the picked BluetoothDevice (also remembered), or null on cancel. */
 export async function pickWebPrinter() {
@@ -41,6 +47,7 @@ export async function pickWebPrinter() {
       acceptAllDevices: true,
       optionalServices: SERVICES,
     });
+    sessionDevices.set(device.id, device);
     saveWebPrinter(device);
     return device;
   } catch (e) {
@@ -53,7 +60,11 @@ export async function pickWebPrinter() {
  *  null when the browser doesn't expose getDevices(). */
 export async function listWebPrinters() {
   if (!navigator.bluetooth?.getDevices) return null;
-  try { return await navigator.bluetooth.getDevices(); } catch { return null; }
+  try {
+    const devices = await navigator.bluetooth.getDevices();
+    devices.forEach((d) => sessionDevices.set(d.id, d));
+    return devices;
+  } catch { return null; }
 }
 
 let cached = null; // { device, char } — GATT connection reused across prints
@@ -82,7 +93,8 @@ export async function testWebPrinter(device) { await connect(device); }
 
 async function resolve(target) {
   if (target?.gatt) return target; // already a BluetoothDevice
-  const known = await listWebPrinters();
+  if (sessionDevices.has(target?.id)) return sessionDevices.get(target.id);
+  const known = await listWebPrinters(); // may repopulate sessionDevices
   const device = known?.find((d) => d.id === target?.id);
   if (!device) throw new Error(RECONNECT_NEEDED);
   return device;
