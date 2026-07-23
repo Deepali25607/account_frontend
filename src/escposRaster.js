@@ -32,7 +32,7 @@ export async function buildReceiptRaster(args) {
   ctx.font = fontFor(fontSize);
   const adv = ctx.measureText("M").width || charW * 0.6;
   fontSize = Math.max(8, Math.floor(fontSize * (charW / adv)));
-  const lineH = Math.ceil(fontSize * 1.3);
+  const lineH = Math.ceil(fontSize * 1.22); // compact but clearly separated lines — fewer rows = faster print
   const marginTop = 4, marginBottom = 32; // tight header, breathing room at the tear
   const height = lines.length * lineH + marginTop + marginBottom;
 

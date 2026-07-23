@@ -168,9 +168,9 @@ public class ThermalPrinterPlugin extends Plugin {
                     Thread.sleep(15);
                 }
                 Log.i(TAG, "wrote " + bytes.length + " bytes in paced chunks, flush complete");
-                // Drain wait scales with payload so big images finish printing
-                // before the link drops (close discards undelivered bytes).
-                long drain = Math.min(8000, 400 + bytes.length / 8);
+                // Short drain: paced writes mean the data is already delivered
+                // as we go — only the last buffered few KB need settling time.
+                long drain = Math.min(2000, 400 + bytes.length / 24);
                 Thread.sleep(drain);
                 Log.i(TAG, "drain wait (" + drain + " ms) done");
                 JSObject ret = new JSObject();
