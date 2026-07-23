@@ -8,15 +8,16 @@
 
 const KEY = "lf_webbt_printer"; // { id, name } — id is Chrome's per-origin device id
 
-// BLE "serial bridge" services used by ESC/POS printers. We request access to
-// all of them, then simply use the first writable characteristic we find.
-const SERVICES = [
-  0x18f0,                                   // generic printer service (+ 0x2af1 write char) — Xprinter & many clones
-  "e7810a71-73ae-499d-8c15-faa9aef0c3f2",   // ISSC/Microchip transparent UART
-  "49535343-fe7d-4ae5-8fa9-9fafd205e455",   // ISSC transparent UART (older variant)
-  "6e400001-b5a3-f393-e0a9-e50e24dcca9e",   // Nordic UART service
-  "0000ff00-0000-1000-8000-00805f9b34fb",   // vendor serial used by several cheap printers
+// Known BLE print channels as [service, write characteristic], tried in this
+// order — these are the "serial bridges" the common ESC/POS printers use.
+const CHANNELS = [
+  [0x18f0, 0x2af1],                                                                   // generic printer service — Xprinter & many clones
+  ["49535343-fe7d-4ae5-8fa9-9fafd205e455", "49535343-8841-43f4-a8d4-ecbe34729bb3"],   // ISSC transparent UART
+  ["e7810a71-73ae-499d-8c15-faa9aef0c3f2", "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"],   // Microchip transparent UART
+  ["6e400001-b5a3-f393-e0a9-e50e24dcca9e", "6e400002-b5a3-f393-e0a9-e50e24dcca9e"],   // Nordic UART service
+  ["0000ff00-0000-1000-8000-00805f9b34fb", "0000ff02-0000-1000-8000-00805f9b34fb"],   // vendor serial on several cheap printers
 ];
+const SERVICES = CHANNELS.map(([svc]) => svc);
 
 export const webBtSupported = () =>
   typeof navigator !== "undefined" && !!navigator.bluetooth?.requestDevice;
@@ -70,11 +71,24 @@ export async function listWebPrinters() {
 let cached = null; // { device, char } — GATT connection reused across prints
 
 async function findWritable(server) {
+  // Prefer the known print channels — a printer can expose other writable
+  // characteristics (config, OTA) that happily swallow bytes without printing.
+  for (const [svcId, chId] of CHANNELS) {
+    try {
+      const ch = await (await server.getPrimaryService(svcId)).getCharacteristic(chId);
+      if (ch.properties.write || ch.properties.writeWithoutResponse) return ch;
+    } catch { /* this service isn't on this printer — try the next */ }
+  }
+  // Fallback: scan everything, preferring write-without-response — the mode
+  // these printer bridges are built around.
+  let writable = null;
   for (const svc of await server.getPrimaryServices()) {
     for (const ch of await svc.getCharacteristics()) {
-      if (ch.properties.write || ch.properties.writeWithoutResponse) return ch;
+      if (ch.properties.writeWithoutResponse) return ch;
+      if (ch.properties.write && !writable) writable = ch;
     }
   }
+  if (writable) return writable;
   throw new Error("This printer doesn't expose a writable Bluetooth LE channel — use the Android app for classic-Bluetooth printers");
 }
 
@@ -106,14 +120,16 @@ async function resolve(target) {
 export async function printWebBt(target, bytes) {
   const device = await resolve(target);
   const char = await connect(device);
-  if (char.properties.write) {
-    // Write-with-response gives us flow control — safe at larger chunks.
-    for (let i = 0; i < bytes.length; i += 240) await char.writeValueWithResponse(bytes.slice(i, i + 240));
-  } else {
-    // No response channel: small chunks + a breather so the buffer keeps up.
-    for (let i = 0; i < bytes.length; i += 20) {
-      await char.writeValueWithoutResponse(bytes.slice(i, i + 20));
-      await new Promise((r) => setTimeout(r, 15));
+  // 20-byte chunks: the write payload limit at the default BLE MTU. Anything
+  // bigger relies on GATT long writes, which cheap printer firmware often
+  // ACKs and then drops — the classic "paper feeds but prints blank" failure.
+  for (let i = 0; i < bytes.length; i += 20) {
+    const part = bytes.slice(i, i + 20);
+    if (char.properties.writeWithoutResponse) {
+      await char.writeValueWithoutResponse(part);
+      await new Promise((r) => setTimeout(r, 12)); // let the printer's buffer drain
+    } else {
+      await char.writeValueWithResponse(part);    // the response ack is our flow control
     }
   }
 }
