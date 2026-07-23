@@ -5,8 +5,14 @@
 // Limits vs the native path: the browser can only reach printers that speak
 // Bluetooth LE (most modern receipt printers do; classic-SPP-only models need
 // the Android app), and the device chooser is the browser's own dialog.
+//
+// Printers differ in WHICH characteristic actually reaches the print head and
+// which write mode their firmware honours — a wrong pick "prints" blank paper.
+// We guess with a known-channels list, and Print Settings offers a Test print
+// that probes every channel/mode; the user picks the number that printed and
+// that exact channel is remembered for all future receipts.
 
-const KEY = "lf_webbt_printer"; // { id, name } — id is Chrome's per-origin device id
+const KEY = "lf_webbt_printer"; // { id, name, channel?: {service, char, mode} }
 
 // Known BLE print channels as [service, write characteristic], tried in this
 // order — these are the "serial bridges" the common ESC/POS printers use.
@@ -27,6 +33,13 @@ export const savedWebPrinter = () => {
 };
 export const saveWebPrinter = (d) => localStorage.setItem(KEY, JSON.stringify({ id: d.id, name: d.name || "Bluetooth printer" }));
 export const forgetWebPrinter = () => localStorage.removeItem(KEY);
+
+/** Pin the verified print channel ({service, char, mode}) after a Test print. */
+export const saveWebPrinterChannel = (channel) => {
+  const cur = savedWebPrinter();
+  if (cur) localStorage.setItem(KEY, JSON.stringify({ ...cur, channel }));
+  cached = null; // reconnect through the pinned channel next time
+};
 
 // Thrown when a saved device id can't be resolved in this browser session —
 // the caller should show the chooser again (needs a user gesture).
@@ -68,43 +81,6 @@ export async function listWebPrinters() {
   } catch { return null; }
 }
 
-let cached = null; // { device, char } — GATT connection reused across prints
-
-async function findWritable(server) {
-  // Prefer the known print channels — a printer can expose other writable
-  // characteristics (config, OTA) that happily swallow bytes without printing.
-  for (const [svcId, chId] of CHANNELS) {
-    try {
-      const ch = await (await server.getPrimaryService(svcId)).getCharacteristic(chId);
-      if (ch.properties.write || ch.properties.writeWithoutResponse) return ch;
-    } catch { /* this service isn't on this printer — try the next */ }
-  }
-  // Fallback: scan everything, preferring write-without-response — the mode
-  // these printer bridges are built around.
-  let writable = null;
-  for (const svc of await server.getPrimaryServices()) {
-    for (const ch of await svc.getCharacteristics()) {
-      if (ch.properties.writeWithoutResponse) return ch;
-      if (ch.properties.write && !writable) writable = ch;
-    }
-  }
-  if (writable) return writable;
-  throw new Error("This printer doesn't expose a writable Bluetooth LE channel — use the Android app for classic-Bluetooth printers");
-}
-
-async function connect(device) {
-  if (cached?.device === device && device.gatt?.connected) return cached.char;
-  const server = await device.gatt.connect();
-  const char = await findWritable(server);
-  device.addEventListener("gattserverdisconnected", () => { if (cached?.device === device) cached = null; }, { once: true });
-  cached = { device, char };
-  return char;
-}
-
-/** Connect and locate the print characteristic without sending anything —
- *  used by Print Settings to validate a newly picked device. */
-export async function testWebPrinter(device) { await connect(device); }
-
 async function resolve(target) {
   if (target?.gatt) return target; // already a BluetoothDevice
   if (sessionDevices.has(target?.id)) return sessionDevices.get(target.id);
@@ -114,22 +90,118 @@ async function resolve(target) {
   return device;
 }
 
-/** Send ESC/POS `bytes` to `target` — a BluetoothDevice from pickWebPrinter(),
- *  or a saved { id, name }. Throws RECONNECT_NEEDED if the id can't be
- *  resolved (caller should re-run pickWebPrinter from a user gesture). */
-export async function printWebBt(target, bytes) {
-  const device = await resolve(target);
-  const char = await connect(device);
-  // 20-byte chunks: the write payload limit at the default BLE MTU. Anything
-  // bigger relies on GATT long writes, which cheap printer firmware often
-  // ACKs and then drops — the classic "paper feeds but prints blank" failure.
+// ── channel discovery ──────────────────────────────────────────────────────
+
+const chKey = (ch) => `${ch.service.uuid}|${ch.uuid}`;
+
+/** Every writable characteristic, known print channels first. */
+async function writableChannels(server) {
+  const found = [];
+  const seen = new Set();
+  const add = (ch) => {
+    if ((ch.properties.write || ch.properties.writeWithoutResponse) && !seen.has(chKey(ch))) { seen.add(chKey(ch)); found.push(ch); }
+  };
+  for (const [svcId, chId] of CHANNELS) {
+    try { add(await (await server.getPrimaryService(svcId)).getCharacteristic(chId)); }
+    catch { /* this service isn't on this printer — try the next */ }
+  }
+  try {
+    for (const svc of await server.getPrimaryServices()) {
+      for (const ch of await svc.getCharacteristics()) add(ch);
+    }
+  } catch { /* some stacks reject a full enumeration — known channels still count */ }
+  return found;
+}
+
+async function pickChannel(server, device) {
+  // A channel verified by Test print wins over guessing.
+  const saved = savedWebPrinter();
+  if (saved?.channel && saved.id === device.id) {
+    try {
+      const ch = await (await server.getPrimaryService(saved.channel.service)).getCharacteristic(saved.channel.char);
+      return { char: ch, mode: saved.channel.mode };
+    } catch { /* printer firmware changed? fall back to guessing */ }
+  }
+  const all = await writableChannels(server);
+  if (!all.length) throw new Error("This printer doesn't expose a writable Bluetooth LE channel — use the Android app for classic-Bluetooth printers");
+  const ch = all[0];
+  return { char: ch, mode: ch.properties.writeWithoutResponse ? "noresp" : "resp" };
+}
+
+let cached = null; // { device, char, mode } — GATT connection reused across prints
+
+async function connect(device) {
+  if (cached?.device === device && device.gatt?.connected) return cached;
+  const server = await device.gatt.connect();
+  const { char, mode } = await pickChannel(server, device);
+  device.addEventListener("gattserverdisconnected", () => { if (cached?.device === device) cached = null; }, { once: true });
+  cached = { device, char, mode };
+  return cached;
+}
+
+/** Connect and locate the print characteristic without sending anything —
+ *  used by Print Settings to validate a newly picked device. */
+export async function testWebPrinter(device) { await connect(device); }
+
+// ── writing ────────────────────────────────────────────────────────────────
+
+// 20-byte chunks: the write payload limit at the default BLE MTU. Anything
+// bigger relies on GATT long writes, which cheap printer firmware often ACKs
+// and then drops — the classic "paper feeds but prints blank" failure.
+async function writeAll(char, mode, bytes) {
   for (let i = 0; i < bytes.length; i += 20) {
     const part = bytes.slice(i, i + 20);
-    if (char.properties.writeWithoutResponse) {
+    if (mode === "noresp" && char.properties.writeWithoutResponse) {
       await char.writeValueWithoutResponse(part);
       await new Promise((r) => setTimeout(r, 12)); // let the printer's buffer drain
     } else {
       await char.writeValueWithResponse(part);    // the response ack is our flow control
     }
   }
+}
+
+/** Send ESC/POS `bytes` to `target` — a BluetoothDevice from pickWebPrinter(),
+ *  or a saved { id, name }. Throws RECONNECT_NEEDED if the id can't be
+ *  resolved (caller should re-run pickWebPrinter from a user gesture). */
+export async function printWebBt(target, bytes) {
+  const device = await resolve(target);
+  const { char, mode } = await connect(device);
+  await writeAll(char, mode, bytes);
+}
+
+// ── test-print probe (Print Settings) ──────────────────────────────────────
+
+const ascii = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 0x7f);
+
+/**
+ * Probe every writable channel/write-mode with a numbered plain-text line
+ * ("LedgerFlow test #N"). Returns [{ n, service, char, mode, sent, error? }].
+ * The user reports which number came out; pass that entry's {service, char,
+ * mode} to saveWebPrinterChannel() to pin it.
+ */
+export async function probePrintChannels(target) {
+  const device = await resolve(target);
+  const server = await device.gatt.connect();
+  const chans = await writableChannels(server);
+  const attempts = [];
+  for (const ch of chans) {
+    for (const mode of ["noresp", "resp"]) {
+      if (mode === "noresp" && !ch.properties.writeWithoutResponse) continue;
+      if (mode === "resp" && !ch.properties.write) continue;
+      attempts.push({ ch, mode });
+    }
+  }
+  const results = [];
+  for (let i = 0; i < attempts.length; i++) {
+    const { ch, mode } = attempts[i];
+    const n = i + 1;
+    const payload = ascii(`\x1b@*** LedgerFlow test #${n} ***\n\n\n`);
+    try {
+      await writeAll(ch, mode, payload);
+      results.push({ n, service: ch.service.uuid, char: ch.uuid, mode, sent: true });
+    } catch (e) {
+      results.push({ n, service: ch.service.uuid, char: ch.uuid, mode, sent: false, error: String(e?.message || e) });
+    }
+  }
+  return results;
 }

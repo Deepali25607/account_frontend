@@ -6,7 +6,7 @@ import { THERMAL_SIZES } from "../pdf";
 import { isNativeApp } from "../files";
 import { loadPrintSettings, savePrintSettings } from "../printSettings";
 import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing } from "../printer";
-import { webBtSupported, pickWebPrinter, listWebPrinters, testWebPrinter } from "../webbt";
+import { webBtSupported, pickWebPrinter, listWebPrinters, testWebPrinter, probePrintChannels, saveWebPrinterChannel, RECONNECT_NEEDED } from "../webbt";
 
 const TYPES = [
   { id: "regular", label: "Regular printer", desc: "A4 or A5 size — system print dialog", icon: Printer },
@@ -67,6 +67,31 @@ export default function PrintSettings() {
 
   const connect = (d) => { savePrinter(d); setConnected(d); toast.success(`${d.name} connected — receipts will print to it directly`); };
   const forget = () => { forgetPrinter(); setConnected(null); toast.success("Printer disconnected — the next print will ask which one to use"); };
+
+  // Test-print probe: sends a numbered line through every writable channel and
+  // write mode; the user picks the number that actually printed and we pin
+  // that channel for all future receipts.
+  const [probe, setProbe] = useState(null); // null | "running" | [results]
+  const runProbe = async (picked) => {
+    setProbe("running"); setBtError("");
+    try {
+      const target = picked || savedPrinter();
+      setProbe(await probePrintChannels(target));
+    } catch (e) {
+      setProbe(null);
+      if (String(e?.message) === RECONNECT_NEEDED && !picked) {
+        const d = await pickWebPrinter();
+        if (d) return runProbe(d);
+      } else {
+        setBtError(String(e?.message || e));
+      }
+    }
+  };
+  const pinChannel = (r) => {
+    saveWebPrinterChannel({ service: r.service, char: r.char, mode: r.mode });
+    setProbe(null);
+    toast.success(`Print channel #${r.n} saved — receipts will use it from now on`);
+  };
 
   // Browser: open the Bluetooth chooser, remember the pick, and try a test
   // connection so unsupported (classic-only) printers are flagged right away.
@@ -188,6 +213,33 @@ export default function PrintSettings() {
                       ? "New printer? Pair it in Android Bluetooth settings first — it will then appear in this list."
                       : "Turn the printer on and tap Connect — your browser will show nearby Bluetooth devices. Works with Bluetooth LE printers; for classic-Bluetooth-only models use the Android app."}
                   </p>
+
+                  {/* Browser only: probe for the channel that actually reaches the print head */}
+                  {!native && connected && (
+                    <div className="mt-4 rounded-xl border border-slate-200 p-4">
+                      <p className="text-sm font-semibold text-slate-800">Connected but printing blank?</p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Printers listen on different Bluetooth channels. Run a test — a few numbered lines are sent through every channel — then tap the number that came out on paper.
+                      </p>
+                      {probe === "running" ? (
+                        <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Spinner className="h-4 w-4 text-brand-500" /> Sending test lines…</div>
+                      ) : Array.isArray(probe) ? (
+                        <div className="mt-3">
+                          <p className="text-sm font-medium text-slate-700">Which test number printed?</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {probe.filter((r) => r.sent).map((r) => (
+                              <button key={r.n} className="btn-primary btn-sm" onClick={() => pinChannel(r)}>#{r.n}</button>
+                            ))}
+                            <button className="btn-ghost btn-sm" onClick={() => setProbe(null)}>None printed</button>
+                          </div>
+                          {probe.every((r) => !r.sent) && <p className="mt-2 text-xs text-rose-600">No channel accepted data — this printer may not support printing over Bluetooth LE. Use the Android app instead.</p>}
+                          {probe.some((r) => r.sent) && <p className="mt-2 text-xs text-slate-400">If none printed, this printer's BLE side can't print — use the Android app (classic Bluetooth) instead.</p>}
+                        </div>
+                      ) : (
+                        <button className="btn-ghost btn-sm mt-3" onClick={() => runProbe()}><Printer className="h-3.5 w-3.5" /> Test print</button>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </section>
