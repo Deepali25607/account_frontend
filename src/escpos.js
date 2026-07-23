@@ -28,7 +28,7 @@ const wrapText = (s, cols) => {
 
 /** Build the full ESC/POS payload for a sale/purchase receipt. Same args as
  *  exportThermalReceipt(). Returns a Uint8Array ready to send to the printer. */
-export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = "sale", paymentKey = "received", widthMm = 80, format = "modern" }) {
+export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = "sale", paymentKey = "received", widthMm = 80, format = "modern", _trace = null }) {
   const cols = colsFor(widthMm);
   // "old" is the compatibility mode for printers that mangle styling commands:
   // plain text only — centering via space padding, no bold/double-size/cut.
@@ -39,7 +39,7 @@ export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = 
   const title = kind === "sale" ? (isReturn ? "CREDIT NOTE" : "TAX INVOICE") : (isReturn ? "DEBIT NOTE" : "PURCHASE");
 
   const out = [];
-  const textLines = []; // plain-text mirror of the receipt, for debug/validation
+  const textLines = _trace || []; // plain-text mirror of the receipt, for preview/debug/validation
   let curAlign = 0; // tracked so "old" mode can center by padding instead of ESC a
   const raw = (...b) => { out.push(...b); };
   const line = (s = "") => {
@@ -103,6 +103,14 @@ export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = 
   // Refuse to emit a content-free payload (would feed blank paper), and leave
   // an inspectable trace of exactly what the receipt says.
   if (!textLines.join("").trim()) throw new Error("Receipt came out empty — nothing to print");
-  console.debug(`[print] receipt text generated (${cols} cols, ${format}, ${out.length} bytes):\n${textLines.join("\n")}`);
+  if (!_trace) console.debug(`[print] receipt text generated (${cols} cols, ${format}, ${out.length} bytes):\n${textLines.join("\n")}`);
   return new Uint8Array(out);
+}
+
+/** The receipt as plain text lines, exactly as the thermal printer will lay it
+ *  out at the given width/format — used for on-screen print preview. */
+export function receiptPreviewLines(args) {
+  const trace = [];
+  buildReceiptEscpos({ ...args, _trace: trace });
+  return trace;
 }

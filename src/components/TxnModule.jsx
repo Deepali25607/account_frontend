@@ -12,7 +12,7 @@ import BarcodeView from "./BarcodeView";
 import ItemPicker from "./ItemPicker";
 import DateRangeFilter, { presetRange } from "./DateRangeFilter";
 import useThermalPrint from "./useThermalPrint";
-import { canPrintDirect, savedPrinter } from "../printer";
+import PrintPreview from "./PrintPreview";
 import { loadPrintSettings } from "../printSettings";
 import { ROUTES } from "../routes";
 
@@ -66,66 +66,6 @@ function Sum({ label, value, strong, accent }) {
       <dt className="label">{label}</dt>
       <dd className={`text-sm ${strong ? "font-bold text-slate-900" : accent ? "font-bold text-brand-700" : "font-medium text-slate-800"}`}>{value}</dd>
     </div>
-  );
-}
-
-/**
- * Compact "Print" control for a table row: opens a small 2"/3"/4" size menu.
- * The menu is positioned with fixed viewport coordinates so it isn't clipped by
- * the table's overflow containers.
- */
-function ReceiptMenu({ onPick, onChangePrinter }) {
-  const btnRef = useRef(null);
-  const nav = useNavigate();
-  const [pos, setPos] = useState(null); // {top, right} when open, else null
-  const toggle = () => {
-    if (pos) return setPos(null);
-    const r = btnRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
-  };
-  // Default target from Print Settings: A4 for "regular", saved roll width for thermal.
-  const ps = loadPrintSettings();
-  const defPick = ps.printerType === "regular" ? "a4" : ps.widthMm;
-  const defLabel = ps.printerType === "regular" ? "A4" : THERMAL_SIZES.find((s) => s.mm === ps.widthMm)?.label || `${ps.widthMm} mm`;
-  return (
-    <span className="ml-1 inline-block align-middle">
-      <button ref={btnRef} className="btn-ghost btn-sm" onClick={toggle} title="Print thermal receipt">
-        <Printer className="h-3.5 w-3.5" /> Print
-      </button>
-      {pos && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setPos(null)} />
-          <div className="fixed z-50 w-40 rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg" style={{ top: pos.top, right: pos.right }}>
-            <button className="block w-full px-3 py-1.5 text-left text-sm font-semibold text-brand-700 hover:bg-slate-50"
-              onClick={() => { setPos(null); onPick(defPick); }}>
-              Default <span className="font-normal text-slate-400">({defLabel})</span>
-            </button>
-            <div className="border-t border-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Receipt size</div>
-            {THERMAL_SIZES.map((s) => (
-              <button key={s.mm} className="block w-full px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
-                onClick={() => { setPos(null); onPick(s.mm); }}>
-                {s.label} <span className="text-slate-400">({s.mm} mm)</span>
-              </button>
-            ))}
-            <button className="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
-              onClick={() => { setPos(null); onPick("a4"); }}>
-              A4 <span className="text-slate-400">(invoice)</span>
-            </button>
-            {/* App only: swap the remembered Bluetooth printer. */}
-            {onChangePrinter && canPrintDirect() && savedPrinter() && (
-              <button className="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
-                onClick={() => { setPos(null); onChangePrinter(); }}>
-                Change printer…
-              </button>
-            )}
-            <button className="block w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
-              onClick={() => { setPos(null); nav(ROUTES.printSettings); }}>
-              Print settings…
-            </button>
-          </div>
-        </>
-      )}
-    </span>
   );
 }
 
@@ -358,30 +298,26 @@ export default function TxnModule({ cfg }) {
 
   // Thermal receipt for the currently-viewed sale/purchase, sized for 2"/3"/4"
   // rolls. In the Android app this prints straight to the Bluetooth printer.
-  const { printThermal, printerPicker, changePrinter } = useThermalPrint();
+  const { printThermal, printerPicker } = useThermalPrint();
   const printReceipt = (widthMm) => printThermal({
     company: me.tenant, currency: cur, doc: viewing, party: viewing._party,
     kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm,
   });
 
-  // Same, straight from a table row — fetch the full document (list rows omit
-  // line items) first. `size` is a thermal roll width in mm, or "a4" to print
-  // the full A4 invoice.
-  const printRowReceipt = async (d, size) => {
+  // Row Print button: fetch the full document (list rows omit line items),
+  // then open the print-preview modal — the bill is shown to the user and
+  // printing only happens after they confirm an option in the modal.
+  const nav = useNavigate();
+  const [printPrev, setPrintPrev] = useState(null); // { doc, party } | null
+  const openPrintPreview = async (d) => {
     try {
-      console.debug("[print] row print clicked", { id: d.id, size });
+      console.debug("[print] row print clicked", { id: d.id });
       const { data } = await api.get(`/${cfg.endpoint}/${d.id}`);
       console.debug("[print] doc fetched", { doc_no: data.doc_no, lines: (data.lines || []).length });
-      if (size === "a4") {
-        exportInvoicePdf({ company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey], kind: cfg.kind, paymentKey: cfg.paymentKey, mode: "print" });
-      } else {
-        await printThermal({
-          company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey],
-          kind: cfg.kind, paymentKey: cfg.paymentKey, widthMm: size,
-        });
-      }
+      setPrintPrev({ doc: data, party: d[cfg.partyNameKey] });
     } catch (e) { toast.error(apiError(e)); }
   };
+  const prevArgs = () => ({ company: me.tenant, currency: cur, doc: printPrev.doc, party: printPrev.party, kind: cfg.kind, paymentKey: cfg.paymentKey });
 
   // Show a per-line discount column in the detail view only when the doc has one.
   const viewingHasDisc = !!viewing && (viewing.lines || []).some((l) => Number(l.discount) > 0);
@@ -472,7 +408,9 @@ export default function TxnModule({ cfg }) {
                       {isAdmin && d.status !== "cancelled" && (
                         <button className="btn-ghost btn-sm ml-1" onClick={() => openEdit(d)}><Pencil className="h-3.5 w-3.5" /> Edit</button>
                       )}
-                      <ReceiptMenu onPick={(mm) => printRowReceipt(d, mm)} onChangePrinter={changePrinter} />
+                      <button className="btn-ghost btn-sm ml-1 align-middle" onClick={() => openPrintPreview(d)} title="Preview and print this bill">
+                        <Printer className="h-3.5 w-3.5" /> Print
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -484,6 +422,16 @@ export default function TxnModule({ cfg }) {
       </div>
 
       {printerPicker}
+
+      {printPrev && (
+        <PrintPreview {...prevArgs()}
+          onClose={() => setPrintPrev(null)}
+          onThermal={(mm) => { setPrintPrev(null); printThermal({ ...prevArgs(), widthMm: mm }); }}
+          onA4={() => { setPrintPrev(null); exportInvoicePdf({ ...prevArgs(), mode: "print" }); }}
+          onPdf={() => { setPrintPrev(null); exportInvoicePdf(prevArgs()); }}
+          onSettings={() => { setPrintPrev(null); nav(ROUTES.printSettings); }}
+        />
+      )}
 
       {viewing && (
         <DetailModal
