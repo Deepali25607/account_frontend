@@ -174,7 +174,7 @@ export default function Layout() {
           <div className="flex items-center gap-2.5 border-b border-brand-100 bg-gradient-to-r from-brand-50 to-white px-4 py-2 text-sm sm:px-6">
             <Smartphone className="h-4 w-4 shrink-0 text-brand-600" />
             <span className="font-medium text-slate-700">Get the LedgerFlow Android app</span>
-            <a href={asset("LedgerFlow-1.1.0.apk")} download
+            <a href={asset("LedgerFlow-1.2.0.apk")} download
               className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-95">
               <Download className="h-3.5 w-3.5" /> Download
             </a>
