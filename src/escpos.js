@@ -91,7 +91,12 @@ export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = 
   bold(true); lr(due > 0 ? "Balance due" : "Balance", money(due)); bold(false);
   rule();
   align(1); line("Thank you!");
-  raw(0x1b, 0x64, 4);                       // feed clear of the tear bar
-  if (modern) raw(0x1d, 0x56, 0x42, 0x00);  // partial cut — harmlessly ignored by cutterless printers
+  if (modern) {
+    raw(0x1b, 0x64, 4);          // feed clear of the tear bar
+    raw(0x1d, 0x56, 0x42, 0x00); // partial cut — harmlessly ignored by cutterless printers
+  } else {
+    // Old mode stays pure text to the last byte — some firmware mangles ESC d.
+    line(); line(); line(); line();
+  }
   return new Uint8Array(out);
 }

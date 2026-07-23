@@ -89,8 +89,11 @@ export default function PrintSettings() {
   };
   const pinChannel = (r) => {
     saveWebPrinterChannel({ service: r.service, char: r.char, mode: r.mode });
+    // The probe verified plain text — start receipts in the matching Old
+    // format. Modern can be re-selected below if this printer handles it.
+    set({ thermalFormat: "old" });
     setProbe(null);
-    toast.success(`Print channel #${r.n} saved — receipts will use it from now on`);
+    toast.success(`Print channel #${r.n} saved — thermal format set to Old (plain text) to match`);
   };
 
   // Browser: open the Bluetooth chooser, remember the pick, and try a test
