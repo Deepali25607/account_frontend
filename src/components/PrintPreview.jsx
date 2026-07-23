@@ -37,12 +37,13 @@ export default function PrintPreview({ company, currency, doc, party, kind, paym
       <div className="mt-4">
         <p className="label">Receipt size</p>
         <div className="mt-1 flex flex-wrap gap-2">
-          {THERMAL_SIZES.map((z) => (
+          {/* Custom width from Print Settings appears as its own option */}
+          {[...THERMAL_SIZES, ...(THERMAL_SIZES.some((z) => z.mm === ps.widthMm) ? [] : [{ label: `${ps.widthMm} mm`, mm: ps.widthMm, custom: true }])].map((z) => (
             <button key={z.mm} type="button" onClick={() => setWidthMm(z.mm)}
               className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition active:scale-95 ${
                 widthMm === z.mm ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600 hover:border-slate-300"
               }`}>
-              {z.label.replace('"', " inch")}
+              {z.custom ? `Custom · ${z.mm} mm` : z.label.replace('"', " inch")}
             </button>
           ))}
         </div>

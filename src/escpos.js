@@ -4,8 +4,16 @@
 
 import { pdfMoney, companyInfo } from "./pdf";
 
-// Printable columns in Font A per roll width: 58 mm → 32, 80 mm → 48, 104 mm → 64.
-const colsFor = (mm) => (mm <= 58 ? 32 : mm <= 80 ? 48 : 64);
+// Printable columns in Font A per roll width. Standard rolls use the exact
+// print-head widths (58 mm → 32, 80 mm → 48, 104 mm → 64); custom widths are
+// derived from ~8 dots/mm with 12-dot characters, slightly conservative so
+// experimental sizes never overflow the paper.
+export const colsFor = (mm) => {
+  if (mm <= 58 && mm >= 55) return 32;
+  if (mm <= 80 && mm >= 78) return 48;
+  if (mm <= 104 && mm >= 100) return 64;
+  return Math.max(20, Math.floor(((mm - 10) * 2) / 3));
+};
 
 // Thermal printers speak single-byte codepages — strip anything non-ASCII
 // (₹ etc. would print as garbage; pdfMoney already falls back to "INR").

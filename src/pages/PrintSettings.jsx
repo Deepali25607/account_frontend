@@ -8,6 +8,7 @@ import { loadPrintSettings, savePrintSettings } from "../printSettings";
 import { savedPrinter, savePrinter, forgetPrinter, listPrinters, isPluginMissing, friendlyPrintError, printTestDirect, printDirect } from "../printer";
 import { useAuth } from "../auth";
 import { webBtSupported, pickWebPrinter, listWebPrinters, testWebPrinter, probePrintChannels, saveWebPrinterChannel, RECONNECT_NEEDED } from "../webbt";
+import { colsFor } from "../escpos";
 
 const TYPES = [
   { id: "regular", label: "Regular printer", desc: "A4 or A5 size — system print dialog", icon: Printer },
@@ -18,6 +19,50 @@ const FORMATS = [
   { id: "modern", label: "Modern", desc: "Styled receipt: bold totals, big header, auto-cut" },
   { id: "old", label: "Old", desc: "Plain text — works with older printers" },
 ];
+
+const PRESET_MMS = THERMAL_SIZES.map((z) => z.mm);
+const clampMm = (n) => Math.max(40, Math.min(120, Math.round(n)));
+
+/** Page size picker: 2/3/4-inch presets plus a free custom width in mm.
+ *  Any width flows through the ESC/POS engine (colsFor) and the PDF receipt. */
+function PageSizeSection({ s, set }) {
+  const isCustom = !PRESET_MMS.includes(s.widthMm);
+  // Keep the raw input editable (typing "7" on the way to "70"), commit only valid values.
+  const [customMm, setCustomMm] = useState(isCustom ? String(s.widthMm) : "70");
+  const commitCustom = (raw) => {
+    setCustomMm(raw);
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 40 && n <= 120) set({ widthMm: clampMm(n) });
+  };
+  return (
+    <section className="card p-5">
+      <h3 className="mb-1 font-bold text-slate-800">Select page size</h3>
+      <p className="mb-4 text-sm text-slate-500">Width of your receipt roll. Used as the default receipt size.</p>
+      <div className="flex flex-wrap gap-3">
+        {THERMAL_SIZES.map((z) => (
+          <Chip key={z.mm} active={s.widthMm === z.mm} onClick={() => set({ widthMm: z.mm })}
+            title={`${z.mm} mm roll · ${colsFor(z.mm)} characters per line`}>
+            {z.label.replace('"', " inch")} <span className={s.widthMm === z.mm ? "text-brand-400" : "text-slate-400"}>· {z.mm} mm</span>
+          </Chip>
+        ))}
+        <Chip active={isCustom} onClick={() => commitCustom(customMm)} title="Set any roll width between 40 and 120 mm">
+          Custom{isCustom && <span className="text-brand-400"> · {s.widthMm} mm</span>}
+        </Chip>
+      </div>
+      {isCustom && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          <label className="label !mb-0" htmlFor="customMm">Roll width</label>
+          <input id="customMm" type="number" min="40" max="120" step="1" value={customMm}
+            onChange={(e) => commitCustom(e.target.value)}
+            onBlur={() => setCustomMm(String(s.widthMm))}
+            className="input w-24 text-center" />
+          <span>mm</span>
+          <span className="text-slate-400">≈ {colsFor(s.widthMm)} characters per line</span>
+        </div>
+      )}
+    </section>
+  );
+}
 
 /** Pill-style option button used for page size and thermal format. */
 function Chip({ active, onClick, children, title }) {
@@ -318,18 +363,7 @@ export default function PrintSettings() {
             </section>
 
             {/* ── Page size ── */}
-            <section className="card p-5">
-              <h3 className="mb-1 font-bold text-slate-800">Select page size</h3>
-              <p className="mb-4 text-sm text-slate-500">Width of your receipt roll. Used as the default receipt size.</p>
-              <div className="flex flex-wrap gap-3">
-                {THERMAL_SIZES.map((z) => (
-                  <Chip key={z.mm} active={s.widthMm === z.mm} onClick={() => set({ widthMm: z.mm })}
-                    title={`${z.mm} mm roll · ${z.mm <= 58 ? 32 : z.mm <= 80 ? 48 : 64} characters per line`}>
-                    {z.label.replace('"', " inch")} <span className={s.widthMm === z.mm ? "text-brand-400" : "text-slate-400"}>· {z.mm} mm</span>
-                  </Chip>
-                ))}
-              </div>
-            </section>
+            <PageSizeSection s={s} set={set} />
 
             {/* ── Thermal format ── */}
             <section className="card p-5">
