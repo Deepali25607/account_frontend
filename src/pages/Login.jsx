@@ -8,7 +8,7 @@ import { Check, Download } from "lucide-react";
 
 // Hide the "download the app" link when we're already running inside the app.
 const isNativeApp = () => typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
-const APK_URL = asset("LedgerFlow-1.2.1.apk");
+const APK_URL = asset("LedgerFlow-1.2.2.apk");
 
 export default function Login() {
   const { me, login, register } = useAuth();
