@@ -157,15 +157,18 @@ public class ThermalPrinterPlugin extends Plugin {
                 Log.i(TAG, "output stream created");
                 logHex(bytes);
                 // Paced chunked writes: raster receipts are tens of KB while the
-                // printer's receive buffer is a few KB — one giant write overruns
-                // it (bytes drop mid-image → garbage glyphs + desync). Small
-                // flushed chunks let RFCOMM flow control pace us to print speed.
+                // printer's receive buffer is a few KB — outrunning the print
+                // head overruns it (bytes drop mid-image → garbage glyphs +
+                // desync), including on back-to-back prints that start with a
+                // partly full buffer. 1 KB / 80 ms ≈ 12.8 KB/s stays at or
+                // below the head's consumption, so the buffer never grows and
+                // overflow is impossible; the head prints while we stream.
                 final int CHUNK = 1024;
                 for (int off = 0; off < bytes.length; off += CHUNK) {
                     int n = Math.min(CHUNK, bytes.length - off);
                     out.write(bytes, off, n);
                     out.flush();
-                    Thread.sleep(15);
+                    Thread.sleep(80);
                 }
                 Log.i(TAG, "wrote " + bytes.length + " bytes in paced chunks, flush complete");
                 // Short drain: paced writes mean the data is already delivered
