@@ -68,6 +68,14 @@ export default function useThermalPrint() {
   };
 
   const printThermal = async (args) => {
+    // The receipt is built synchronously from `args.doc` — validate it here so
+    // incomplete data stops with a clear error instead of a near-empty print.
+    const doc = args?.doc;
+    console.debug("[print] requested", { doc_no: doc?.doc_no, lines: doc?.lines?.length ?? 0, total: doc?.grand_total, widthMm: args?.widthMm });
+    if (!doc || (!doc.lines?.length && !Number(doc.grand_total))) {
+      toast.error("Nothing to print — the bill hasn't finished loading");
+      return;
+    }
     if (!canPrintDirect()) return exportThermalReceipt(args);
     if (!isNativeApp()) return printWeb(args);
     const saved = savedPrinter();

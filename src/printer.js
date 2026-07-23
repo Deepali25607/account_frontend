@@ -64,8 +64,11 @@ const toB64 = (bytes) => {
  *  passes an explicit `format`. */
 export async function printDirect(printer, receiptArgs) {
   const bytes = buildReceiptEscpos({ format: loadPrintSettings().thermalFormat, ...receiptArgs });
+  if (!bytes || bytes.length < 16) throw new Error("Receipt payload is empty — refusing to print");
+  console.debug(`[print] escpos bytes ready: ${bytes.length}, sending via ${isNativeApp() ? "native SPP" : "Web Bluetooth"} to ${printer?.name || printer?.address || printer?.id}`);
   if (isNativeApp()) await ThermalPrinter.print({ address: printer.address, data: toB64(bytes) });
   else await printWebBt(printer, bytes);
+  console.debug("[print] transport reports completion");
 }
 
 /** Test page straight to the printer — used by Print Settings to verify the

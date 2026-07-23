@@ -369,7 +369,9 @@ export default function TxnModule({ cfg }) {
   // the full A4 invoice.
   const printRowReceipt = async (d, size) => {
     try {
+      console.debug("[print] row print clicked", { id: d.id, size });
       const { data } = await api.get(`/${cfg.endpoint}/${d.id}`);
+      console.debug("[print] doc fetched", { doc_no: data.doc_no, lines: (data.lines || []).length });
       if (size === "a4") {
         exportInvoicePdf({ company: me.tenant, currency: cur, doc: data, party: d[cfg.partyNameKey], kind: cfg.kind, paymentKey: cfg.paymentKey, mode: "print" });
       } else {

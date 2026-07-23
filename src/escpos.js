@@ -39,11 +39,13 @@ export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = 
   const title = kind === "sale" ? (isReturn ? "CREDIT NOTE" : "TAX INVOICE") : (isReturn ? "DEBIT NOTE" : "PURCHASE");
 
   const out = [];
+  const textLines = []; // plain-text mirror of the receipt, for debug/validation
   let curAlign = 0; // tracked so "old" mode can center by padding instead of ESC a
   const raw = (...b) => { out.push(...b); };
   const line = (s = "") => {
     let t = clean(s);
     if (!modern && curAlign === 1 && t.length < cols) t = " ".repeat(Math.floor((cols - t.length) / 2)) + t;
+    textLines.push(t);
     for (let i = 0; i < t.length; i++) out.push(t.charCodeAt(i));
     out.push(0x0a);
   };
@@ -98,5 +100,9 @@ export function buildReceiptEscpos({ company, currency, doc: txn, party, kind = 
     // Old mode stays pure text to the last byte — some firmware mangles ESC d.
     line(); line(); line(); line();
   }
+  // Refuse to emit a content-free payload (would feed blank paper), and leave
+  // an inspectable trace of exactly what the receipt says.
+  if (!textLines.join("").trim()) throw new Error("Receipt came out empty — nothing to print");
+  console.debug(`[print] receipt text generated (${cols} cols, ${format}, ${out.length} bytes):\n${textLines.join("\n")}`);
   return new Uint8Array(out);
 }
