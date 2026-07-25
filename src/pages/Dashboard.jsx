@@ -135,7 +135,7 @@ function ProductionOrders({ orders }) {
           <p className="mb-3 text-sm text-slate-500">
             <span className="font-semibold text-slate-800">{fmtNum(active.length)}</span> active of {fmtNum(orders.length)} total
           </p>
-          <div className="overflow-hidden rounded-xl border border-slate-100">
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
             <table className="w-full min-w-[480px]">
               <thead><tr className="bg-slate-50"><th className="th">Order</th><th className="th">Item</th><th className="th">Progress</th><th className="th">Status</th></tr></thead>
               <tbody>

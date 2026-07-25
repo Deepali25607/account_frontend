@@ -569,6 +569,7 @@ function Orders() {
       <div className="mb-3 flex justify-end"><button className="btn-primary" onClick={() => setAdding(true)} disabled={!boms.length}><Plus className="h-4 w-4" /> New production order</button></div>
       {orders === null ? <Loading /> : orders.length === 0 ? <div className="card"><Empty icon={Factory} title="No production orders" hint={boms.length ? "Plan a production run." : "Create a BOM first."} /></div> : (
         <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="w-full min-w-[680px]">
             <thead><tr className="bg-slate-50"><th className="th">Order</th><th className="th">Item</th><th className="th">Progress</th><th className="th">Planned</th><th className="th">Status</th><th className="th"></th></tr></thead>
             <tbody>
@@ -576,8 +577,8 @@ function Orders() {
                 <tr key={po.id} onClick={() => setViewing(po)} className="cursor-pointer hover:bg-slate-50/60">
                   <td className="td font-semibold text-slate-800">PRD-{String(po.id).padStart(4, "0")}</td>
                   <td className="td">{po.item_name}</td>
-                  <td className="td">{fmtNum(po.completed_qty)} / {fmtNum(po.qty)}</td>
-                  <td className="td">{po.planned_date || "—"}</td>
+                  <td className="td whitespace-nowrap">{fmtNum(po.completed_qty)} / {fmtNum(po.qty)}</td>
+                  <td className="td whitespace-nowrap">{po.planned_date || "—"}</td>
                   <td className="td"><span className={`badge capitalize ${STATUS_STYLE[po.status]}`}>{po.status.replace("_", " ")}</span></td>
                   <td className="td text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                     {po.status === "planned" && <button className="btn-ghost btn-sm" onClick={() => setStatus(po, "in_progress")}>Start</button>}
@@ -588,6 +589,7 @@ function Orders() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
       {adding && <OrderModal boms={boms} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} toast={toast} />}
@@ -695,7 +697,7 @@ function Mrp() {
   };
 
   const Cols = ({ rows, kind }) => (
-    <table className="w-full"><thead><tr className="bg-slate-50"><th className="th">Item</th><th className="th text-right">On hand</th><th className="th text-right">Required</th><th className="th text-right">{kind === "buy" ? "To purchase" : "To produce"}</th></tr></thead>
+    <table className="w-full min-w-[480px]"><thead><tr className="bg-slate-50"><th className="th">Item</th><th className="th text-right">On hand</th><th className="th text-right">Required</th><th className="th text-right">{kind === "buy" ? "To purchase" : "To produce"}</th></tr></thead>
       <tbody>{rows.map((r) => (
         <tr key={r.item_id}><td className="td font-medium">{r.name} <span className="text-slate-400">({r.sku})</span></td>
           <td className="td text-right">{fmtNum(r.on_hand)}</td><td className="td text-right">{fmtNum(r.gross)}</td>
@@ -719,11 +721,11 @@ function Mrp() {
           <div className="mt-4 space-y-4">
             {mrp.purchase.length > 0 && (
               <div><h4 className="mb-2 font-bold text-slate-700">Materials to purchase</h4>
-                <div className="overflow-hidden rounded-xl border border-slate-100"><Cols rows={mrp.purchase} kind="buy" /></div></div>
+                <div className="overflow-x-auto rounded-xl border border-slate-100"><Cols rows={mrp.purchase} kind="buy" /></div></div>
             )}
             {mrp.produce.length > 0 && (
               <div><h4 className="mb-2 font-bold text-slate-700">Sub-assemblies to produce</h4>
-                <div className="overflow-hidden rounded-xl border border-slate-100"><Cols rows={mrp.produce} kind="make" /></div></div>
+                <div className="overflow-x-auto rounded-xl border border-slate-100"><Cols rows={mrp.produce} kind="make" /></div></div>
             )}
             {mrp.purchase.some((p) => p.net > 0) && (
               <div className="flex flex-wrap items-center gap-2 rounded-xl bg-brand-50 p-3">
@@ -742,7 +744,7 @@ function Mrp() {
         <h3 className="mb-1 font-bold text-slate-800">MRP exception report</h3>
         <p className="mb-3 text-xs text-slate-400">Net shortages across all {report?.plannedOrders ?? 0} planned/in-progress orders (MF-08).</p>
         {!report ? <Loading /> : report.shortages.length === 0 ? <p className="text-sm text-slate-400">No material shortages 🎉</p> : (
-          <div className="overflow-hidden rounded-xl border border-slate-100"><Cols rows={report.shortages} kind="buy" /></div>
+          <div className="overflow-x-auto rounded-xl border border-slate-100"><Cols rows={report.shortages} kind="buy" /></div>
         )}
       </div>
     </div>

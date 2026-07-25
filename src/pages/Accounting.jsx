@@ -114,7 +114,8 @@ function TrialBalance({ d, cur }) {
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
         <h3 className="font-bold text-slate-700">Trial Balance</h3><BalancedBadge ok={d.balanced} />
       </div>
-      <table className="w-full">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px]">
         <thead><tr className="bg-slate-50"><th className="th">Code</th><th className="th">Account</th><th className="th text-right">Debit</th><th className="th text-right">Credit</th></tr></thead>
         <tbody>
           {d.rows.filter((r) => r.debit_balance || r.credit_balance).map((r) => (
@@ -126,6 +127,7 @@ function TrialBalance({ d, cur }) {
             <td className="td text-right">{fmtMoney(d.totals.debit, cur)}</td><td className="td text-right">{fmtMoney(d.totals.credit, cur)}</td></tr>
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -206,15 +208,17 @@ function Journal({ d, cur }) {
           <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-sm">
             <span className="font-semibold text-slate-700">{e.memo}</span><span className="text-slate-400">{e.entry_date}</span>
           </div>
-          <table className="w-full"><tbody>
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px]"><tbody>
             {e.lines.map((l, i) => (
               <tr key={i} className="border-t border-slate-100">
                 <td className="td"><span className="text-slate-400">{l.code}</span> {l.name}</td>
-                <td className="td text-right text-slate-600">{l.debit ? `Dr ${fmtMoney(l.debit, cur)}` : ""}</td>
-                <td className="td text-right text-slate-600">{l.credit ? `Cr ${fmtMoney(l.credit, cur)}` : ""}</td>
+                <td className="td text-right text-slate-600 whitespace-nowrap">{l.debit ? `Dr ${fmtMoney(l.debit, cur)}` : ""}</td>
+                <td className="td text-right text-slate-600 whitespace-nowrap">{l.credit ? `Cr ${fmtMoney(l.credit, cur)}` : ""}</td>
               </tr>
             ))}
           </tbody></table>
+          </div>
         </div>
       ))}
     </div>

@@ -100,7 +100,8 @@ export default function Billing() {
         <div className="mt-8">
           <h3 className="mb-2 font-bold text-slate-700">Request history</h3>
           <div className="card overflow-hidden">
-            <table className="w-full">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px]">
               <thead><tr className="bg-slate-50"><th className="th">Requested</th><th className="th">Plan</th><th className="th">Status</th><th className="th">Note</th></tr></thead>
               <tbody>
                 {requests.filter((r) => !OPEN.includes(r.status)).map((r) => (
@@ -113,6 +114,7 @@ export default function Billing() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

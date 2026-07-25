@@ -64,6 +64,7 @@ function UsersTab({ isOwner, tier }) {
         {isOwner && <button className="btn-primary" disabled={full} onClick={() => setAdding(true)} title={full ? "Seat limit reached — upgrade for more" : ""}><Plus className="h-4 w-4" /> Invite user</button>}
       </div>
       <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[620px]">
           <thead><tr className="bg-slate-50"><th className="th">Name</th><th className="th">Email</th><th className="th">Role</th><th className="th">Status</th>{isOwner && <th className="th"></th>}</tr></thead>
           <tbody>
@@ -86,6 +87,7 @@ function UsersTab({ isOwner, tier }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
       {adding && <InviteModal tier={tier} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} toast={toast} />}
     </>
@@ -205,6 +207,7 @@ function AuditTab({ isOwner }) {
   if (!rows.length) return <div className="card"><Empty icon={History} title="No activity yet" /></div>;
   return (
     <div className="card overflow-hidden">
+      <div className="overflow-x-auto">
       <table className="w-full min-w-[560px]">
         <thead><tr className="bg-slate-50"><th className="th">When</th><th className="th">User</th><th className="th">Action</th><th className="th">Entity</th></tr></thead>
         <tbody>
@@ -218,6 +221,7 @@ function AuditTab({ isOwner }) {
           ))}
         </tbody>
       </table>
+      </div>
       <Pager page={page} pageSize={AUDIT_PAGE_SIZE} total={total} onPage={setPage} />
     </div>
   );

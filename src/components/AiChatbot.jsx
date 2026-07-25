@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Sparkles, Send, Mic, X, Coins, Trophy, CalendarClock, TrendingUp, TrendingDown, Crown, Zap,
+  Sparkles, Send, Mic, X, Coins, Trophy, CalendarClock, TrendingUp, TrendingDown, Zap,
 } from "lucide-react";
 import api from "../api";
 import { ROUTES } from "../routes";
@@ -127,7 +127,9 @@ export default function AiChatbot() {
 
   useEffect(() => () => recRef.current?.abort?.(), []);
 
-  if (!me || me.trial?.expired) return null;
+  // Hidden entirely unless the platform super admin has enabled the AI add-on
+  // for this organization — no launcher orb, no console, no upsell.
+  if (!me || me.trial?.expired || !aiGranted) return null;
 
   const cur = me.tenant.currency;
   const chatReady = aiGranted && status?.enabled;
@@ -334,15 +336,7 @@ export default function AiChatbot() {
 
           {/* footer: chat input / upgrade / not-configured */}
           <div className="relative border-t border-white/[.07] px-3 py-3">
-            {!aiGranted ? (
-              <div className="flex w-full items-center gap-2.5 rounded-2xl bg-gradient-to-r from-brand-600 to-violet-600 px-4 py-3 text-white shadow-lg">
-                <Crown className="h-5 w-5 shrink-0 text-amber-300" />
-                <span className="flex-1">
-                  <span className="block text-sm font-bold">AI chat & voice commands</span>
-                  <span className="block text-[11px] text-brand-100">A paid add-on — contact us to enable it for your organization</span>
-                </span>
-              </div>
-            ) : status && !status.enabled ? (
+            {status && !status.enabled ? (
               <p className="px-1 py-1 text-center text-xs text-slate-500">AI chat isn't set up on this server yet{me.user.role === "owner" ? " — add a Groq API key to enable it" : ""}.</p>
             ) : (
               <>
