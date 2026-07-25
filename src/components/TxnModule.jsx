@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Plus, Trash2, FileText, ScanLine, Camera, Barcode, Eye, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus, Search } from "lucide-react";
+import { Plus, Trash2, FileText, ScanLine, Camera, Printer, CheckCircle2, Pencil, MessageCircle, UserPlus, Search } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, Modal, Field, LineCol, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
 import { exportInvoicePdf, THERMAL_SIZES } from "../pdf";
-import { buildInvoiceLink, invoiceShareMessage, normalizePhone, waUrl, isPublicShareBase } from "../share";
+import { buildInvoiceLink, invoiceShareMessage, normalizePhone, waUrl, isPublicShareBase, openWhatsAppChat } from "../share";
 import PageHead from "./PageHead";
 import BarcodeScanner from "./BarcodeScanner";
-import BarcodeView from "./BarcodeView";
+import ItemFormModal from "./ItemFormModal";
+import { BLANK_ITEM } from "../itemMaster";
 import ItemPicker from "./ItemPicker";
 import DateRangeFilter, { presetRange } from "./DateRangeFilter";
 import useThermalPrint from "./useThermalPrint";
@@ -19,31 +20,6 @@ import { ROUTES } from "../routes";
 const PAGE_SIZE = 20;
 const todayStr = () => new Date().toISOString().slice(0, 10); // matches the backend's default doc_date
 
-// Item material types — kept in sync with MATERIAL_TYPES in account-backend/src/routes/masters.js
-// (also mirrored in Inventory.jsx). Used by the inline "new item" quick-add.
-const MATERIAL_TYPES = [
-  { id: "raw", label: "Raw Material" },
-  { id: "semi_finished", label: "Semi-Finished" },
-  { id: "finished", label: "Finished Good" },
-  { id: "trading", label: "Trading Good" },
-  { id: "consumable", label: "Consumable" },
-  { id: "service", label: "Service" },
-];
-// Mirrors SKU_PREFIX in account-backend/src/routes/masters.js (display hint only).
-const SKU_PREFIX = { raw: "RM", semi_finished: "SF", finished: "FG", trading: "TG", consumable: "CM", service: "SV" };
-// A blank item for the inline quick-add — mirrors `blank` in Inventory.jsx so the
-// in-bill form can capture every field the full item master supports.
-const BLANK_ITEM = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
-
-// Generate a valid EAN-13 barcode for in-house items (mirrors genBarcode in
-// Inventory.jsx). Prefix "2" is reserved by GS1 for in-store/private numbering,
-// so generated codes never collide with real manufacturer barcodes.
-function genBarcode() {
-  const base = ("2" + String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 100)).padStart(2, "0")).slice(0, 12).padEnd(12, "0");
-  let sum = 0;
-  for (let i = 0; i < 12; i++) sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
-  return base + ((10 - (sum % 10)) % 10);
-}
 
 /** Sortable column header — click toggles asc/desc; the arrow shows only on the active column. */
 function Th({ id, sort, onSort, right, children }) {
@@ -102,6 +78,12 @@ function ShareWhatsApp({ company, currency, doc, customer, phone, tenant }) {
         // details so only dropping the just-downloaded PDF into it is manual.
         window.open(waUrl(normalizePhone(num, cc), text), "_blank");
         setNote("PDF downloaded — attach it in the WhatsApp chat that just opened.");
+      } else if (result === "shared") {
+        // Mobile: the PDF went out via the share sheet, but WhatsApp drops the
+        // text caption on documents and the sheet ignores the entered number —
+        // follow up with the customer's chat pre-filled with the details.
+        openWhatsAppChat(normalizePhone(num, cc), text);
+        setNote("PDF shared — now send the pre-filled details message in the customer's chat.");
       }
     } finally { setBusy(false); }
   };
@@ -123,7 +105,7 @@ function ShareWhatsApp({ company, currency, doc, customer, phone, tenant }) {
         </button>
       </div>
       {note && <p className="mt-2 text-[11px] font-semibold text-emerald-700">{note}</p>}
-      <p className="mt-2 text-[11px] text-slate-400">Sends the invoice details with the PDF attached{isPublicShareBase() ? ", plus a link to view it online." : "."}</p>
+      <p className="mt-2 text-[11px] text-slate-400">Shares the invoice PDF, then opens the customer's chat with the details message{isPublicShareBase() ? " and a link to view it online." : "."}</p>
     </div>
   );
 }
@@ -136,6 +118,7 @@ function ShareWhatsApp({ company, currency, doc, customer, phone, tenant }) {
  */
 function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toast, tenant }) {
   const btnRef = useRef(null);
+  const docPromise = useRef(null);
   const [pos, setPos] = useState(null); // {top, right} when open, else null
   const [cc, setCc] = useState("91");
   const [num, setNum] = useState("");
@@ -143,6 +126,11 @@ function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toa
   const valid = normalizePhone(num, cc).length >= 10;
   const toggle = () => {
     if (pos) return setPos(null);
+    // Start loading the full document NOW: by Send-tap time it's resolved, so
+    // navigator.share runs inside the tap's user-activation window — a slow
+    // fetch between tap and share makes mobile Chrome reject the file share
+    // (silent download + text-only chat: "the PDF didn't attach").
+    docPromise.current = fetchFull();
     setNum(String(phone || "").replace(/\D/g, "").replace(/^0+/, ""));
     const r = btnRef.current.getBoundingClientRect();
     setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
@@ -151,7 +139,7 @@ function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toa
     if (!valid) return;
     setBusy(true);
     try {
-      const doc = await fetchFull();
+      const doc = await (docPromise.current || fetchFull());
       const paid = Number(doc.received || 0);
       const balance = Number(doc.grand_total || 0) - paid;
       const text = invoiceShareMessage({
@@ -167,6 +155,11 @@ function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toa
         // details so only dropping the just-downloaded PDF into it is manual.
         window.open(waUrl(normalizePhone(num, cc), text), "_blank");
         toast.success("PDF downloaded — attach it in the WhatsApp chat that just opened");
+      } else if (result === "shared") {
+        // Mobile: the PDF went out via the share sheet, but WhatsApp drops the
+        // text caption on documents and the sheet ignores the entered number —
+        // follow up with the customer's chat pre-filled with the details.
+        openWhatsAppChat(normalizePhone(num, cc), text);
       }
       setPos(null);
     } catch (e) { toast.error(apiError(e)); }
@@ -190,7 +183,7 @@ function WhatsAppRowButton({ company, currency, partyName, phone, fetchFull, toa
             <button className="btn-primary mt-2 w-full justify-center" disabled={!valid || busy} onClick={send} title="Send the invoice details with the PDF attached">
               {busy ? <Spinner className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />} Send
             </button>
-            <p className="mt-2 text-[11px] text-slate-400">Sends the invoice details with the PDF attached{isPublicShareBase() ? ", plus a link to view it online." : "."}</p>
+            <p className="mt-2 text-[11px] text-slate-400">Shares the invoice PDF, then opens the customer's chat with the details message{isPublicShareBase() ? " and a link to view it online." : "."}</p>
           </div>
         </>
       )}
@@ -538,10 +531,7 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, sf = () => 
   const [override, setOverride] = useState(false);
   const [scan, setScan] = useState("");
   const [scanCam, setScanCam] = useState(false);
-  const [newItem, setNewItem] = useState(null); // null | full item draft (see BLANK_ITEM) when quick-adding
-  const [savingItem, setSavingItem] = useState(false);
-  const [itemScanCam, setItemScanCam] = useState(false); // camera scan for the new-item barcode field
-  const [showItemBarcode, setShowItemBarcode] = useState(false); // view/print the new-item barcode
+  const [newItem, setNewItem] = useState(null); // null | BLANK_ITEM draft while the shared item form is open
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -581,38 +571,18 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, sf = () => 
     finally { setSavingParty(false); }
   };
 
-  // Quick-add a new inventory item from the bill (purchase). On success the item
-  // is added to inventory, the item list, and slotted into a line on this bill.
-  const setNewItemField = (k) => (e) => setNewItem((it) => ({ ...it, [k]: e.target.value }));
-  const saveItem = async () => {
-    const name = String(newItem?.name || "").trim();
-    if (!name) return toast.error("Item name is required");
-    setSavingItem(true);
-    try {
-      const { data: created } = await api.post("/items", {
-        name,
-        sku: String(newItem.sku || "").trim(), // blank → backend auto-generates
-        barcode: String(newItem.barcode || "").trim(),
-        material_type: newItem.material_type || "finished",
-        uom: String(newItem.uom || "").trim() || "unit",
-        category: String(newItem.category || "").trim(),
-        hsn: newItem.hsn || "",
-        cost_price: Number(newItem.cost_price) || 0,
-        sale_price: Number(newItem.sale_price) || 0,
-        tax_rate: Number(newItem.tax_rate) || 0,
-        stock_qty: Number(newItem.stock_qty) || 0,
-        reorder_lvl: Number(newItem.reorder_lvl) || 0,
-      });
-      setItems((xs) => [...xs, created].sort((a, b) => a.name.localeCompare(b.name)));
-      const line = { item_id: String(created.id), qty: 1, unit_price: cfg.kind === "sale" ? created.sale_price : created.cost_price, tax_rate: created.tax_rate || 0, discount: 0, discount_type: "amount" };
-      setLines((ls) => {
-        const blankIdx = ls.findIndex((l) => !l.item_id);
-        return blankIdx >= 0 ? ls.map((l, i) => (i === blankIdx ? line : l)) : [...ls, line];
-      });
-      setNewItem(null);
-      toast.success(`Added ${created.name}`);
-    } catch (e) { toast.error(apiError(e)); }
-    finally { setSavingItem(false); }
+  // Quick-add a new inventory item from the bill (purchase) through the shared
+  // ItemFormModal — the exact same form as Inventory. On save the item joins
+  // the picker list and is slotted into a line on this bill.
+  const onItemCreated = (created) => {
+    setItems((xs) => [...xs, created].sort((a, b) => a.name.localeCompare(b.name)));
+    const line = { item_id: String(created.id), qty: 1, unit_price: cfg.kind === "sale" ? created.sale_price : created.cost_price, tax_rate: created.tax_rate || 0, discount: 0, discount_type: "amount" };
+    setLines((ls) => {
+      const blankIdx = ls.findIndex((l) => !l.item_id);
+      return blankIdx >= 0 ? ls.map((l, i) => (i === blankIdx ? line : l)) : [...ls, line];
+    });
+    setNewItem(null);
+    toast.success(`${created.name} added to inventory and this bill`);
   };
 
   const onItemPick = (i, itemId) => {
@@ -980,64 +950,15 @@ function CreateDoc({ cfg, cur, company, companyInfo, canGst, canLoc, sf = () => 
         <div className="flex flex-wrap gap-2">
           <button className="btn-ghost btn-sm" onClick={addLine}><Plus className="h-3.5 w-3.5" /> Add line</button>
           {cfg.kind === "purchase" && (
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setNewItem((x) => (x ? null : { ...BLANK_ITEM }))}>
-              <Plus className="h-3.5 w-3.5" /> {newItem ? "Cancel new item" : "New item"}
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setNewItem({ ...BLANK_ITEM })}>
+              <Plus className="h-3.5 w-3.5" /> New item
             </button>
           )}
         </div>
       </div>
 
       {cfg.kind === "purchase" && newItem && (
-        <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
-          <p className="label !mb-2">New item</p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="sm:col-span-2"><Field label="Name"><input className="input" autoFocus value={newItem.name || ""} onChange={setNewItemField("name")} placeholder="Required" /></Field></div>
-            <Field label="Unit of measure"><input className="input" value={newItem.uom || ""} onChange={setNewItemField("uom")} placeholder="unit" /></Field>
-            <Field label="SKU (optional)">
-              <input className="input" value={newItem.sku || ""} onChange={setNewItemField("sku")} placeholder={`Auto e.g. ${SKU_PREFIX[newItem.material_type] || "IT"}-00001`} autoComplete="off" />
-            </Field>
-            <Field label="Material type">
-              <select className="input" value={newItem.material_type || "finished"} onChange={setNewItemField("material_type")}>
-                {MATERIAL_TYPES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Category"><input className="input" value={newItem.category || ""} onChange={setNewItemField("category")} /></Field>
-            <div className="sm:col-span-3"><Field label="Barcode (generate or type — optional)">
-              <div className="flex gap-2">
-                <input className="input" value={newItem.barcode || ""} onChange={setNewItemField("barcode")} placeholder="e.g. 8901234567890" autoComplete="off" />
-                {newItem.barcode ? (
-                  <button type="button" onClick={() => setShowItemBarcode(true)} className="btn-ghost shrink-0" title="View, download or print the barcode">
-                    <Eye className="h-4 w-4" /> View Barcode
-                  </button>
-                ) : (
-                  <>
-                    <button type="button" onClick={() => setNewItem((it) => ({ ...it, barcode: genBarcode() }))} className="btn-ghost shrink-0" title="Generate a barcode">
-                      <Barcode className="h-4 w-4" /> Generate
-                    </button>
-                    <button type="button" onClick={() => setItemScanCam(true)} className="btn-ghost shrink-0" title="Scan a barcode with the camera">
-                      <ScanLine className="h-4 w-4" /> Add Barcode
-                    </button>
-                  </>
-                )}
-              </div>
-            </Field></div>
-            {canGst && <Field label="HSN/SAC"><input className="input" value={newItem.hsn || ""} onChange={setNewItemField("hsn")} placeholder="e.g. 9401" autoComplete="off" /></Field>}
-            {canGst && <Field label="GST %"><input type="number" min="0" className="input" value={newItem.tax_rate || ""} onChange={setNewItemField("tax_rate")} placeholder="0" /></Field>}
-            <Field label="Cost price"><input type="number" min="0" className="input" value={newItem.cost_price || ""} onChange={setNewItemField("cost_price")} placeholder="0" /></Field>
-            <Field label="Sale price"><input type="number" min="0" className="input" value={newItem.sale_price || ""} onChange={setNewItemField("sale_price")} placeholder="0" /></Field>
-            <Field label="Opening stock"><input type="number" className="input" value={newItem.stock_qty || ""} onChange={setNewItemField("stock_qty")} placeholder="0" /></Field>
-            <Field label="Reorder level"><input type="number" className="input" value={newItem.reorder_lvl || ""} onChange={setNewItemField("reorder_lvl")} placeholder="0" /></Field>
-          </div>
-          <p className="mt-2 text-[11px] text-slate-400">Leave SKU blank to auto-generate (<b>{SKU_PREFIX[newItem.material_type] || "IT"}-…</b>). Saving adds the item to your inventory and to this bill.</p>
-          <div className="mt-3 flex justify-end gap-2">
-            <button className="btn-ghost btn-sm" onClick={() => setNewItem(null)}>Cancel</button>
-            <button className="btn-primary btn-sm" disabled={savingItem || !String(newItem.name || "").trim()} onClick={saveItem}>
-              {savingItem && <Spinner className="h-4 w-4" />} Save item
-            </button>
-          </div>
-          <BarcodeScanner open={itemScanCam} onClose={() => setItemScanCam(false)} onDetect={(code) => { setItemScanCam(false); setNewItem((it) => ({ ...it, barcode: code })); toast.success("Barcode captured"); }} />
-          <BarcodeView open={showItemBarcode} value={newItem.barcode} name={newItem.name} onClose={() => setShowItemBarcode(false)} />
-        </div>
+        <ItemFormModal item={newItem} canGst={canGst} onClose={() => setNewItem(null)} onSaved={onItemCreated} />
       )}
 
       {cfg.kind === "sale" && sf("oversell") && (

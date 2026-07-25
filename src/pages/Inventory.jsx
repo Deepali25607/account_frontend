@@ -1,42 +1,21 @@
 import { useEffect, useState } from "react";
-import { Plus, Search, SlidersHorizontal, Package, Pencil, Trash2, ScanLine, Barcode, Eye, Upload, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Plus, Search, SlidersHorizontal, Package, Pencil, Trash2, ScanLine, Upload, FileDown, CheckCircle2, AlertTriangle } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { fmtMoney, fmtNum, Modal, Field, useToast, apiError, Empty, Spinner, Pager, DetailModal } from "../ui";
 import PageHead from "../components/PageHead";
 import BarcodeScanner from "../components/BarcodeScanner";
-import BarcodeView from "../components/BarcodeView";
+import ItemFormModal from "../components/ItemFormModal";
+import { MATERIAL_TYPES, BLANK_ITEM } from "../itemMaster";
 
-// Kept in sync with MATERIAL_TYPES in account-backend/src/routes/masters.js
-const MATERIAL_TYPES = [
-  { id: "raw", label: "Raw Material" },
-  { id: "semi_finished", label: "Semi-Finished" },
-  { id: "finished", label: "Finished Good" },
-  { id: "trading", label: "Trading Good" },
-  { id: "consumable", label: "Consumable" },
-  { id: "service", label: "Service" },
-];
 const MATERIAL_LABEL = Object.fromEntries(MATERIAL_TYPES.map((m) => [m.id, m.label]));
-// Mirrors SKU_PREFIX in account-backend/src/routes/masters.js (display hint only).
-const SKU_PREFIX = { raw: "RM", semi_finished: "SF", finished: "FG", trading: "TG", consumable: "CM", service: "SV" };
 const MATERIAL_STYLE = {
   raw: "bg-amber-100 text-amber-700", semi_finished: "bg-orange-100 text-orange-700",
   finished: "bg-emerald-100 text-emerald-700", trading: "bg-brand-100 text-brand-700",
   consumable: "bg-slate-100 text-slate-600", service: "bg-violet-100 text-violet-700",
 };
 
-const blank = { sku: "", name: "", barcode: "", hsn: "", category: "", material_type: "finished", uom: "unit", alt_uom: "", alt_uom_factor: "", cost_price: 0, sale_price: 0, tax_rate: 0, stock_qty: 0, reorder_lvl: 0 };
 const PAGE_SIZE = 20;
-
-// Generate a valid EAN-13 barcode for in-house items. Prefix "2" is reserved by
-// GS1 for in-store/private numbering, so generated codes never collide with real
-// manufacturer barcodes. Payload = "2" + time + randomness; the 13th is the EAN-13 check digit.
-function genBarcode() {
-  const base = ("2" + String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 100)).padStart(2, "0")).slice(0, 12).padEnd(12, "0");
-  let sum = 0;
-  for (let i = 0; i < 12; i++) sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
-  return base + ((10 - (sum % 10)) % 10);
-}
 
 // CSV import template + minimal RFC-4180-ish parser (handles quotes & embedded commas).
 const IMPORT_COLUMNS = ["sku", "name", "material_type", "hsn", "barcode", "category", "uom", "alt_uom", "alt_uom_factor", "cost_price", "sale_price", "tax_rate", "stock_qty", "reorder_lvl"];
@@ -110,7 +89,7 @@ export default function Inventory() {
         action={
           <div className="flex gap-2">
             <button className="btn-ghost" onClick={() => setImporting(true)}><Upload className="h-4 w-4" /> Import</button>
-            <button className="btn-primary" onClick={() => setEdit({ ...blank })}><Plus className="h-4 w-4" /> New item</button>
+            <button className="btn-primary" onClick={() => setEdit({ ...BLANK_ITEM })}><Plus className="h-4 w-4" /> New item</button>
           </div>
         }
       />
@@ -221,86 +200,13 @@ export default function Inventory() {
         </DetailModal>
       )}
 
-      {edit && <ItemModal item={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} canGst={can("gst")} />}
+      {edit && <ItemFormModal item={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} canGst={can("gst")} />}
       <BarcodeScanner open={scanLookup} onClose={() => setScanLookup(false)} onDetect={lookupByCode} />
       {adjust && <AdjustModal item={adjust} cur={cur} onClose={() => setAdjust(null)} onSaved={() => { setAdjust(null); load(); }} />}
       {importing && <ImportModal onClose={() => setImporting(false)} reload={load} />}
       {del && <DeleteModal item={del} onClose={() => setDel(null)} onDeleted={() => { setDel(null); load(); }} />}
     </>
   );
-
-  function ItemModal({ item, onClose, onSaved, canGst }) {
-    const [f, setF] = useState(item);
-    const [busy, setBusy] = useState(false);
-    const [showBarcode, setShowBarcode] = useState(false);
-    const [scanCam, setScanCam] = useState(false); // camera open to capture a barcode for this item
-    const isNew = !item.id;
-    const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-    const save = async () => {
-      setBusy(true);
-      try {
-        if (isNew) await api.post("/items", f);
-        else await api.put(`/items/${item.id}`, f);
-        toast.success(isNew ? "Item created" : "Item updated");
-        onSaved();
-      } catch (e) { toast.error(apiError(e)); } finally { setBusy(false); }
-    };
-    return (
-      <Modal open title={isNew ? "New item" : "Edit item"} onClose={onClose}>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2"><Field label="Name"><input className="input" value={f.name} onChange={set("name")} /></Field></div>
-          <Field label="Unit of measure"><input className="input" value={f.uom} onChange={set("uom")} /></Field>
-          <Field label="Alternate unit (optional)"><input className="input" value={f.alt_uom || ""} onChange={set("alt_uom")} placeholder="e.g. box" /></Field>
-          {(f.alt_uom || "").trim() && (
-            <Field label={`1 ${f.alt_uom.trim()} = ? ${f.uom || "unit"}`}>
-              <input type="number" min="0" className="input" value={f.alt_uom_factor ?? ""} onChange={set("alt_uom_factor")} placeholder="e.g. 12" />
-            </Field>
-          )}
-          <Field label="SKU (optional)">
-            <input className="input" value={f.sku} onChange={set("sku")} disabled={!isNew} placeholder={isNew ? `Auto e.g. ${SKU_PREFIX[f.material_type] || "IT"}-00001` : ""} />
-            {isNew && !f.sku && <p className="mt-1 text-xs text-slate-400">Leave blank to auto-generate as <b>{SKU_PREFIX[f.material_type] || "IT"}-…</b></p>}
-          </Field>
-          <div className="col-span-2"><Field label="Barcode (generate or type — optional)">
-            <div className="flex gap-2">
-              <input className="input" value={f.barcode || ""} onChange={set("barcode")} placeholder="e.g. 8901234567890" autoComplete="off" />
-              {f.barcode ? (
-                <button type="button" onClick={() => setShowBarcode(true)} className="btn-ghost shrink-0" title="View, download or print the barcode">
-                  <Eye className="h-4 w-4" /> View Barcode
-                </button>
-              ) : (
-                <>
-                  <button type="button" onClick={() => setF((x) => ({ ...x, barcode: genBarcode() }))} className="btn-ghost shrink-0" title="Generate a barcode">
-                    <Barcode className="h-4 w-4" /> Generate
-                  </button>
-                  <button type="button" onClick={() => setScanCam(true)} className="btn-ghost shrink-0" title="Scan a barcode with the camera">
-                    <ScanLine className="h-4 w-4" /> Add Barcode
-                  </button>
-                </>
-              )}
-            </div>
-          </Field></div>
-          <Field label="Material type">
-            <select className="input" value={f.material_type || "finished"} onChange={set("material_type")}>
-              {MATERIAL_TYPES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Category"><input className="input" value={f.category || ""} onChange={set("category")} /></Field>
-          {canGst && <Field label="HSN / SAC code"><input className="input" value={f.hsn || ""} onChange={set("hsn")} placeholder="e.g. 9401" autoComplete="off" /></Field>}
-          {canGst && <Field label="GST %"><input type="number" className="input" value={f.tax_rate} onChange={set("tax_rate")} /></Field>}
-          <Field label="Cost price"><input type="number" className="input" value={f.cost_price} onChange={set("cost_price")} /></Field>
-          <Field label="Sale price"><input type="number" className="input" value={f.sale_price} onChange={set("sale_price")} /></Field>
-          {isNew && <Field label="Opening stock"><input type="number" className="input" value={f.stock_qty} onChange={set("stock_qty")} /></Field>}
-          <Field label="Reorder level"><input type="number" className="input" value={f.reorder_lvl} onChange={set("reorder_lvl")} /></Field>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={busy} onClick={save}>{busy && <Spinner className="h-4 w-4" />} Save</button>
-        </div>
-        <BarcodeScanner open={scanCam} onClose={() => setScanCam(false)} onDetect={(code) => { setScanCam(false); setF((x) => ({ ...x, barcode: code })); toast.success("Barcode captured"); }} />
-        <BarcodeView open={showBarcode} value={f.barcode} name={f.name} onClose={() => setShowBarcode(false)} />
-      </Modal>
-    );
-  }
 
   function DeleteModal({ item, onClose, onDeleted }) {
     const [busy, setBusy] = useState(false);

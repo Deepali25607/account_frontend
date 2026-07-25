@@ -6,6 +6,7 @@
 // data never reaches a server. We keep the payload keys short to keep URLs small.
 
 import { BASENAME } from "./config";
+import { isNativeApp } from "./files";
 
 /**
  * Public base URL used to build customer-facing links.
@@ -134,6 +135,22 @@ export function normalizePhone(raw, cc = "91") {
 /** WhatsApp click-to-chat URL: opens a chat with `phone`, message pre-filled. */
 export function waUrl(phone, text) {
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * Open the WhatsApp chat with `phone`, message pre-filled — used after the PDF
+ * went out via a share sheet, because WhatsApp drops the text caption when a
+ * document is attached, and the share sheet ignores the entered number anyway.
+ * In the app, assigning location hands the external URL to the OS (Capacitor
+ * intercepts non-app hosts and launches WhatsApp; the WebView stays put). In
+ * browsers a popup can be blocked after the share's user-gesture is spent, so
+ * fall back to same-tab navigation — wa.me bounces straight into WhatsApp.
+ */
+export function openWhatsAppChat(phone, text) {
+  const url = waUrl(phone, text);
+  if (isNativeApp()) { window.location.href = url; return; }
+  const w = window.open(url, "_blank");
+  if (!w) window.location.href = url;
 }
 
 /**

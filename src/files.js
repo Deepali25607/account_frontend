@@ -34,15 +34,16 @@ async function shareFileNative({ blob, fileName, text }) {
 /** True when the error is just the user closing the share sheet, not a failure. */
 const isShareCancel = (e) => e?.name === "AbortError" || /cancel/i.test(String(e?.message || e));
 
-/** Mobile web: share the file via the Web Share API. False if unsupported. */
+/** Mobile web: share the file via the Web Share API.
+ *  Returns "shared" | "cancelled", or false when unsupported/failed (→ fall back). */
 async function shareFileWeb({ blob, fileName, mimeType, text }) {
+  const file = new File([blob], fileName, { type: mimeType });
+  if (!navigator.canShare?.({ files: [file] })) return false;
   try {
-    const file = new File([blob], fileName, { type: mimeType });
-    if (!navigator.canShare?.({ files: [file] })) return false;
     await navigator.share({ files: [file], title: fileName, ...(text ? { text } : {}) });
-    return true;
+    return "shared";
   } catch (e) {
-    return e?.name === "AbortError"; // user closed the share sheet — done, don't fall back
+    return e?.name === "AbortError" ? "cancelled" : false; // cancelled = done, don't fall back
   }
 }
 
@@ -59,7 +60,7 @@ export function downloadFile(blob, fileName) {
  * Deliver a generated file the way the current platform supports: native share
  * sheet in the app, Web Share on mobile browsers, download on desktop.
  * `text` (optional) becomes the share message/caption alongside the file.
- * Returns "shared" or "downloaded"; never throws (a dismissed sheet is fine).
+ * Returns "shared" | "cancelled" | "error" | "downloaded"; never throws.
  */
 export async function outputFile({ blob, fileName, mimeType, text }) {
   // File paths choke on separators/reserved chars a doc number might contain.
@@ -69,19 +70,21 @@ export async function outputFile({ blob, fileName, mimeType, text }) {
     // failure looks like a dead button. Tell the user what went wrong instead.
     // The WebView loads the live site (capacitor server.url), so this JS can be
     // newer than the installed binary — a missing-plugin error means an old APK.
-    try { await shareFileNative({ blob, fileName: safeName, text }); }
+    try { await shareFileNative({ blob, fileName: safeName, text }); return "shared"; }
     catch (e) {
-      if (!isShareCancel(e)) {
-        const outdated = /not implemented|plugin/i.test(String(e?.message || e));
-        window.alert(outdated
-          ? "Sharing needs a newer version of the LedgerFlow app. Please download the latest app from the website (Login page → Download Android app) and install it, then try again."
-          : `Could not open the share dialog: ${e?.message || e}`);
-      }
+      if (isShareCancel(e)) return "cancelled";
+      const outdated = /not implemented|plugin/i.test(String(e?.message || e));
+      window.alert(outdated
+        ? "Sharing needs a newer version of the LedgerFlow app. Please download the latest app from the website (Login page → Download Android app) and install it, then try again."
+        : `Could not open the share dialog: ${e?.message || e}`);
+      return "error";
     }
-    return "shared";
   }
   try {
-    if (isMobileBrowser() && await shareFileWeb({ blob, fileName: safeName, mimeType, text })) return "shared";
+    if (isMobileBrowser()) {
+      const r = await shareFileWeb({ blob, fileName: safeName, mimeType, text });
+      if (r) return r;
+    }
   } catch { /* Web Share unavailable — fall through to download */ }
   downloadFile(blob, safeName);
   return "downloaded";

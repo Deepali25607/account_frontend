@@ -12,6 +12,23 @@ import { RefreshCw } from "lucide-react";
 const THRESHOLD = 72; // damped px of pull that arms the refresh
 const MAX_PULL = 110;
 
+/**
+ * True when a touch may drive pull-to-refresh: nothing between the touched
+ * element and the main scroll container floats above the page or scrolls on
+ * its own. Modals, sheets, popovers and the AI console all render in-tree as
+ * fixed overlays (often with their own overflow-auto body), so without this
+ * check a swipe inside them would hijack their scroll and reload the app.
+ */
+const ownsTouch = (target, el) => {
+  for (let n = target; n && n !== el; n = n.parentElement) {
+    if (!(n instanceof Element)) break;
+    const s = getComputedStyle(n);
+    if (s.position === "fixed") return false;
+    if (/(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight) return false;
+  }
+  return true;
+};
+
 export default function PullToRefresh({ containerRef }) {
   const isNativeApp = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   const [pull, setPull] = useState(0);
@@ -27,7 +44,7 @@ export default function PullToRefresh({ containerRef }) {
     const update = (v) => { pullRef.current = v; setPull(v); };
 
     const onStart = (e) => {
-      startY.current = el.scrollTop <= 0 ? e.touches[0].clientY : null;
+      startY.current = el.scrollTop <= 0 && ownsTouch(e.target, el) ? e.touches[0].clientY : null;
     };
     const onMove = (e) => {
       if (startY.current === null || refreshing) return;
