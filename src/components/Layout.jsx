@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation, Navigate } from "react-router-dom";
 import {
   LayoutDashboard, Package, ShoppingCart, Receipt, Users, BarChart3,
@@ -11,6 +11,7 @@ import { useTheme } from "../theme";
 import { ROUTES } from "../routes";
 import { asset } from "../config";
 import AiChatbot from "./AiChatbot";
+import PullToRefresh from "./PullToRefresh";
 
 const TIER_STYLES = {
   basic: "bg-emerald-100 text-emerald-700",
@@ -55,6 +56,7 @@ export default function Layout() {
     try { return !isNativeApp && localStorage.getItem("hideAppBanner") !== "1"; } catch { return !isNativeApp; }
   });
   const dismissAppBanner = () => { try { localStorage.setItem("hideAppBanner", "1"); } catch { /* ignore */ } setAppBanner(false); };
+  const mainRef = useRef(null);
   const nav = useNavigate();
   const loc = useLocation();
   if (!me) return null;
@@ -184,7 +186,8 @@ export default function Layout() {
           </div>
         )}
 
-        <main className="flex-1 overflow-auto px-4 pt-4 pb-28 sm:px-6 sm:pt-6 md:pb-6">
+        <main ref={mainRef} className="flex-1 overflow-auto px-4 pt-4 pb-28 sm:px-6 sm:pt-6 md:pb-6">
+          <PullToRefresh containerRef={mainRef} />
           <div className="mx-auto max-w-6xl">
             <Outlet />
           </div>
