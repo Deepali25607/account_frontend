@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { FileText, Download, Printer, AlertTriangle } from "lucide-react";
 import { fmtMoney } from "../ui";
-import { exportInvoicePdf } from "../pdf";
+import { exportInvoicePdf, partyInfo } from "../pdf";
 import { readInvoiceFromHash } from "../share";
 
 /**
@@ -60,7 +60,13 @@ export default function PublicInvoice() {
           </div>
 
           <div className="px-6 py-5">
-            {customer && <p className="mb-4 text-sm text-slate-600">Bill to: <span className="font-medium text-slate-800">{customer}</span></p>}
+            {customer && (
+              <div className="mb-4 text-sm text-slate-600">
+                <p>Bill to: <span className="font-medium text-slate-800">{customer}</span></p>
+                {/* Address/contact/GSTIN — only newer links carry the full party record. */}
+                {partyInfo(doc.party).lines.map((ln) => <p key={ln} className="text-xs text-slate-500">{ln}</p>)}
+              </div>
+            )}
 
             <div className="overflow-x-auto rounded-xl border border-slate-100">
               <table className="w-full min-w-[420px] text-sm">

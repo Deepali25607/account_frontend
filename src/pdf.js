@@ -23,6 +23,23 @@ export function companyInfo(company) {
   return { name: c.name || "", lines, logo: c.logo || "" };
 }
 
+/**
+ * Normalize the document's party (customer/supplier), which may be the full
+ * row from the API ({name, phone, email, tax_no, address, city, …}) or just a
+ * name string (legacy callers, shared public links). Returns { name, lines[] }
+ * like companyInfo — the lines go under the name in the BILL TO block.
+ */
+export function partyInfo(party) {
+  if (!party) return { name: "", lines: [] };
+  if (typeof party === "string") return { name: party, lines: [] };
+  const p = party;
+  const street = String(p.address || "").replace(/\s*\n\s*/g, ", ").replace(/\s+/g, " ").trim();
+  const addr = [street, [p.city, p.state, p.pincode].filter(Boolean).join(", ")].filter(Boolean).join(", ");
+  const contact = [p.phone && `Ph: ${p.phone}`, p.email].filter(Boolean).join("  ·  ");
+  const lines = [addr, contact, p.tax_no && `GSTIN: ${p.tax_no}`].filter(Boolean);
+  return { name: p.name || "", lines };
+}
+
 /** Draw the company logo (data-URL) top-right, scaled to fit a box, preserving
  *  aspect ratio. Never throws — a bad image just skips rendering. */
 function drawLogo(doc, logo) {
@@ -133,7 +150,9 @@ export function amountInWords(n, cur = "INR") {
  */
 export function exportInvoicePdf({ company, currency, doc, customer, party, kind = "sale", paymentKey, mode = "save", shareText }) {
   const isPurchase = kind === "purchase";
-  const partyName = party ?? customer ?? "";
+  // Prefer the full party row the API embeds on the doc; fall back to the
+  // plain name string legacy callers / shared links pass.
+  const pInfo = partyInfo(doc.party || (party ?? customer));
   const payKey = paymentKey || (isPurchase ? "paid" : "received");
   const isReturn = doc.doc_type === "return";
   const title = isReturn ? (isPurchase ? "DEBIT NOTE" : "CREDIT NOTE") : (isPurchase ? "PURCHASE INVOICE" : "TAX INVOICE");
@@ -175,7 +194,11 @@ export function exportInvoicePdf({ company, currency, doc, customer, party, kind
   pdf.text(isPurchase ? "SUPPLIER" : "BILL TO", L, y);
   y += 5;
   pdf.setFontSize(11); pdf.setTextColor(...DARK);
-  pdf.text(partyName || "—", L, y);
+  pdf.text(pInfo.name || "—", L, y);
+  // Address / contact / GSTIN under the name — the items table starts at y + 6,
+  // so advancing y here pushes it down to make room.
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(8.5); pdf.setTextColor(...SLATE);
+  pInfo.lines.forEach((ln) => pdf.splitTextToSize(ln, 120).forEach((sub) => { y += 4; pdf.text(sub, L, y); }));
 
   // ── Items table ──
   // Only surface the per-line discount column when at least one line carries one.

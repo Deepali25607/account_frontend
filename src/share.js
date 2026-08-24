@@ -56,9 +56,16 @@ const fromB64Url = (s) => {
 function pack({ company, currency, doc, customer }) {
   const co = typeof company === "object" && company !== null ? company : { name: company || "" };
   const profile = { a: co.address || "", ci: co.city || "", st: co.state || "", z: co.pincode || "", ph: co.phone || "", em: co.email || "", g: co.gstin || "" };
+  // Customer address/contact/GSTIN — present when the doc came from the full
+  // GET /sales/:id fetch, which embeds the party row; travels so the public
+  // page's Bill To block is complete too.
+  const pt = doc.party && typeof doc.party === "object"
+    ? { a: doc.party.address || "", ci: doc.party.city || "", st: doc.party.state || "", z: doc.party.pincode || "", ph: doc.party.phone || "", g: doc.party.tax_no || "" }
+    : null;
   return {
     c: co.name || "",
     co: Object.values(profile).some(Boolean) ? profile : undefined,
+    pp: pt && Object.values(pt).some(Boolean) ? pt : undefined,
     u: currency || "INR",
     n: doc.doc_no,
     d: doc.doc_date,
@@ -88,6 +95,9 @@ export function unpack(o) {
     currency: o.u,
     customer: o.p,
     doc: {
+      party: o.pp
+        ? { name: o.p, address: o.pp.a, city: o.pp.ci, state: o.pp.st, pincode: o.pp.z, phone: o.pp.ph, tax_no: o.pp.g }
+        : undefined,
       doc_no: o.n,
       doc_date: o.d,
       doc_type: o.ty,
