@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, AlertTriangle } from "lucide-react";
+import { CheckCircle2, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { fmtMoney, Spinner, Empty } from "../ui";
+import { fmtMoney, Spinner, Empty, useToast } from "../ui";
+import { outputFile } from "../files";
 import PageHead from "../components/PageHead";
 
 const TABS = [
@@ -16,9 +17,82 @@ const TABS = [
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const monthsAgo = (n) => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10); };
 
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Flatten the active report into array-of-arrays (header row + data rows) for an
+// .xlsx sheet. Money/qty stay as raw numbers — not currency-formatted strings —
+// so the exported cells remain usable in Excel formulas and pivots.
+function sheetForTab(active, d) {
+  switch (active) {
+    case "trial-balance":
+      return [
+        ["Code", "Account", "Debit", "Credit"],
+        ...d.rows.filter((r) => r.debit_balance || r.credit_balance)
+          .map((r) => [r.code, r.name, r.debit_balance || 0, r.credit_balance || 0]),
+        ["", "Total", d.totals.debit, d.totals.credit],
+      ];
+    case "pnl":
+      return [
+        ["Section", "Account", "Amount"],
+        ...d.income.map((r) => ["Income", r.name, r.amount]),
+        ["", "Total Income", d.totalIncome],
+        ...d.expense.map((r) => ["Expense", r.name, r.amount]),
+        ["", "Total Expenses", d.totalExpense],
+        ["", d.netProfit >= 0 ? "Net Profit" : "Net Loss", d.netProfit],
+      ];
+    case "balance-sheet":
+      return [
+        ["Section", "Account", "Amount"],
+        ...d.assets.map((r) => ["Assets", r.name, r.amount]),
+        ["", "Total Assets", d.totalAssets],
+        ...d.liabilities.map((r) => ["Liabilities", r.name, r.amount]),
+        ["", "Total Liabilities", d.totalLiabilities],
+        ...d.equity.map((r) => ["Equity", r.name, r.amount]),
+        ["Equity", "Retained Earnings", d.retainedEarnings],
+        ["", "Total Equity", d.totalEquity],
+      ];
+    case "gst-summary":
+      return [
+        ["Metric", "Amount"],
+        ["Output tax (on sales)", d.outputTax],
+        ["Input credit (on purchases)", d.inputCredit],
+        [d.netPayable >= 0 ? "Net GST payable" : "Net GST credit", Math.abs(d.netPayable)],
+      ];
+    case "hsn-summary":
+      return [
+        ["HSN/SAC", "Rate %", "Qty", "Taxable value", "Tax", "Total"],
+        ...d.rows.map((r) => [r.hsn, r.rate, r.qty, r.taxable, r.tax, r.total]),
+        ["Total", "", "", d.totals.taxable, d.totals.tax, d.totals.total],
+      ];
+    case "journal":
+      return [
+        ["Date", "Memo", "Code", "Account", "Debit", "Credit"],
+        ...d.flatMap((e) => e.lines.map((l) => [e.entry_date, e.memo, l.code, l.name, l.debit || 0, l.credit || 0])),
+      ];
+    default:
+      return [];
+  }
+}
+
+// Whether the active tab currently holds rows worth exporting (also gates the
+// button while data is still loading, when `d` is null).
+function hasExportableData(active, d) {
+  if (!d) return false;
+  switch (active) {
+    case "trial-balance": return d.rows.some((r) => r.debit_balance || r.credit_balance);
+    case "hsn-summary": return !!d.rows?.length;
+    case "journal": return d.length > 0;
+    case "pnl": return !!(d.income?.length || d.expense?.length);
+    case "balance-sheet": return !!(d.assets?.length || d.liabilities?.length || d.equity?.length);
+    case "gst-summary": return true;
+    default: return false;
+  }
+}
+
 export default function Accounting() {
   const { me } = useAuth();
   const cur = me.tenant.currency;
+  const toast = useToast();
   const [active, setActive] = useState("trial-balance");
   const [from, setFrom] = useState(monthsAgo(12));
   const [to, setTo] = useState(todayISO());
@@ -31,17 +105,40 @@ export default function Accounting() {
     api.get(`/accounting/${active}`, { params: { from, to } }).then((r) => setData(r.data));
   }, [active, from, to]);
 
+  // Export the active report as .xlsx. xlsx is code-split (loaded on first use)
+  // and outputFile handles web download vs. native share, mirroring Reports.jsx.
+  const exportExcel = async () => {
+    if (!hasExportableData(active, data)) return;
+    const label = TABS.find((t) => t.id === active)?.label || "Report";
+    try {
+      const XLSX = await import("xlsx");
+      const ws = XLSX.utils.aoa_to_sheet(sheetForTab(active, data));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, label.slice(0, 31)); // sheet names cap at 31 chars
+      const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], { type: XLSX_MIME });
+      const fileName = dated ? `${active}_${from}_to_${to}.xlsx` : `${active}.xlsx`;
+      await outputFile({ blob, fileName, mimeType: XLSX_MIME, text: `${label} export` });
+    } catch {
+      toast("Could not export to Excel", "error");
+    }
+  };
+
   return (
     <>
       <PageHead title="Accounting & GST" subtitle="Books auto-posted from your sales & purchases — no manual double-entry." />
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => { setData(null); setActive(t.id); }}
             className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${active === t.id ? "bg-brand-600 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
             {t.label}
           </button>
         ))}
+        <button onClick={exportExcel} disabled={!hasExportableData(active, data)}
+          title="Download the current report as an Excel file"
+          className="btn-ghost ml-auto disabled:cursor-not-allowed disabled:opacity-40">
+          <FileSpreadsheet className="h-4 w-4" /> Export Excel
+        </button>
       </div>
 
       {dated && (
